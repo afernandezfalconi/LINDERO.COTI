@@ -1,0 +1,75 @@
+PROMPT MAESTRO — PosteoCot v0.5
+Crea una herramienta web de uso interno llamada PosteoCot para cotizar el posteo (cercado con postes y alambre de púa) de lotes residenciales o rurales. Es un archivo HTML único, autocontenido, sin dependencias externas excepto Google Fonts y pdf.js desde cdnjs.
+
+DISEÑO VISUAL
+Dark theme con estas variables CSS: --bg:#0f1117, --bg2:#171b26, --bg3:#1e2333, --border:#2a3050, --accent:#e8c84a, --green:#4adb8a, --red:#f06060, --text:#e8eaf2, --muted:#7a85a8. Fuentes: Syne (headings), IBM Plex Sans (body), IBM Plex Mono (labels, valores numéricos). Layout de dos columnas: panel izquierdo con formulario scrolleable, panel derecho sticky con el resumen de cotización en tiempo real.
+
+ESTRUCTURA — 6 secciones en el panel izquierdo:
+1. Datos del cliente: nombre, folio/referencia, ubicación del lote.
+2. Plano del lote (PDF + trazado interactivo):
+
+Zona de upload que acepta PDF
+Al subir, renderiza el PDF con pdf.js (cdnjs, versión 3.11.174) dentro de un visor con toolbar
+Toolbar: navegación de páginas (◀ ▶), botones "✏ Trazar" y "✋ Mover", botón "✕ Borrar", botón "✓ Confirmar lote" (aparece solo con ≥4 vértices), controles de zoom +/−
+El visor usa DOS canvas apilados: #cpdf (renderiza el PDF) y #cdrw (overlay transparente encima, recibe eventos). Ambos dentro de un #cinner con position:relative; display:inline-block, dentro de #cscroll con overflow:auto; max-height:460px. El #cdrw tiene position:absolute; top:0; left:0
+CRÍTICO para coordenadas: usar e.offsetX y e.offsetY en el click del canvas (NO getBoundingClientRect), porque offsetX/Y son siempre relativos al canvas receptor sin importar scroll
+Modo Trazar: cursor SVG data URI amarillo (#e8c84a) con fondo oscuro semitransparente, cruz + círculo central, hotspot 14,14. Cada click registra un vértice {x, y}
+Modo Mover: cursor grab. Implementar pan con mousedown en cdrw + mousemove/mouseup en window, arrastrando el scrollLeft/scrollTop de #cscroll
+Mientras se trazan puntos: dibujar cada lado entre vértices consecutivos con color distinto de un array (amarillo, verde, azul, rojo, morado…), etiqueta "L1", "L2"… en el punto medio con fondo oscuro semitransparente. Línea punteada amarilla de Vn→V1 como guía de cierre
+Al "Confirmar lote": dibujar el lado de cierre Vn→V1 (mismo sistema de colores, etiqueta Ln), relleno verde translúcido, badge "✓ lote trazado". n vértices = n lados exactos, sin agregar vértice extra
+Barra de instrucción dinámica debajo del visor con punto parpadeante de color y contador de vértices
+Zona de upload de imagen de referencia adicional (JPG/PNG/PDF/KMZ) para referencia visual
+
+3. Medidas del lote:
+
+Contador de lados con botones +/− (mínimo 4)
+Al confirmar el trazado, el contador se ajusta automáticamente a los vértices marcados y hace scroll a esta sección
+Grid de inputs "Lado N (m)" con punto de color que coincide con el color del lado en el plano
+Resumen de perímetro calculado en tiempo real
+Campos Manzana y número de lote
+
+4. Separación y material de postes:
+
+Select de separación: 1.50m (malla galvanizada), 2.00m (alambre de púa, default), 3.00m (SCT/campo abierto), Personalizada
+Toggle material: Concreto 12×12×2m / Madera tratada Ø10cm
+Select: Comprar prefabricados / Fabricar en obra
+Nota fija: los postes esquineros siempre son concreto 15×15cm con zapata, sin importar el material general. El número de esquineros = número de vértices del lote
+
+5. Vano del portón:
+
+Toggle Sí/No. Si Sí: campo ancho en metros (default 5m, estándar), select de qué lado va
+El ancho del portón se resta del perímetro efectivo para calcular postes y alambre
+Nota: el portón metálico se cotiza aparte con el herrero
+
+6. Costos de materiales:
+
+Modo COMPRAR: precio por pieza de poste línea concreto, poste línea madera, poste esquinero
+Modo FABRICAR EN OBRA (molde propio): cemento $4,800/ton (= $240/saco 50kg, ya ingresado), arena por m³, grava por m³, varilla 3/8" por varilla 6m, alambrón 1/4" por kg. Más poste esquinero comprado (siempre)
+Siempre visible: alambre de púa cal. 12.5 (precio/rollo + metros por rollo, default 200m), grampas/grapas por kg, concreto fundición global
+Mano de obra: calculada automáticamente, no editable (se muestra el total)
+Campos pendientes con estilo amarillo oscuro (border-color:#3a2a00; background:#1a1400)
+
+
+LÓGICA DE CÁLCULO (todo en tiempo real):
+
+Perímetro efectivo = perímetro total − ancho portón (si aplica)
+Postes de línea = ceil(perímetro efectivo / separación)
+Postes esquineros = número de vértices del lote (no siempre 4)
+Alambre de púa = perímetro efectivo × 3 hebras → rollos = ceil(metros / metros por rollo)
+Mano de obra: referencia lote 200m² ≈ 60m perímetro. Rendimiento: 2 personas avanzan 1.5 lotes/día. Días = ceil((perímetro/60) / 1.5), mínimo 1 día. Costo = días × 2 personas × $500/persona/día. Herramienta y transporte van por cuenta de la empresa, no se cobran al cliente
+Fabricar postes en obra: cemento ~9kg/poste (mezcla 1:3:3 poste 12×12×200cm). Fórmula: (9/50)*(pCemento/20) para cemento + proporciones de arena/grava/varilla/alambrón
+Total: suma de todas las partes con datos. Si falta algún precio, mostrar "—" para ese concepto y advertir cuántos precios están pendientes
+
+
+PANEL DERECHO — resumen en tiempo real:
+Secciones: Cliente, Lote (manzana/lote, lados, perímetro, separación, portón), Postes requeridos (línea + esquineros + material + modo), Alambre de púa (metros + rollos), Mano de obra (lotes equiv. + días + costo), Desglose de costos (5 líneas), Total estimado con aviso de pendientes. Botón "Imprimir / exportar cotización" que llama window.print().
+
+REGLAS TÉCNICAS:
+
+pdfjsLib.GlobalWorkerOptions.workerSrc apuntando al worker de cdnjs
+Pan: mousedown en cdrw + mousemove/mouseup en window para que no se suelte al salir del área
+Nunca usar getBoundingClientRect para coordenadas de canvas; siempre offsetX/offsetY
+ctx.roundRect() para etiquetas de lados (disponible en browsers modernos)
+Formato de pesos mexicanos: toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})
+Responsive: en móvil las columnas se apilan
+Print CSS: ocultar panel izquierdo, mostrar solo el resultado
