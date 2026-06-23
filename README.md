@@ -5,8 +5,20 @@ Herramienta web **de uso interno** de Luna Grupo Inmobiliario para cotizar el
 
 - **Tipo:** PWA de un solo archivo HTML autocontenido (`index.html`).
 - **Versión actual local:** **V4.00** (extraída de Google Drive el 2026-06-23).
-- **Demo en producción:** https://lunagrupoinmobiliario.github.io/LINDERO.COTI/
 - **Origen Drive:** `PROYECTOS PWA / LINDERO.COTI`
+
+### Repositorio y despliegue
+
+- **Repo de trabajo (origin):** https://github.com/afernandezfalconi/LINDERO.COTI
+  — fork bajo la cuenta personal, rama `main`. Aquí se hace `git push`.
+- **Deploy propio (Pages):** https://afernandezfalconi.github.io/LINDERO.COTI/
+- **Upstream original (org, solo lectura):** https://github.com/lunagrupoinmobiliario/LINDERO.COTI
+  → https://lunagrupoinmobiliario.github.io/LINDERO.COTI/ (no se puede pushear con
+  la cuenta actual; el fork se creó por eso).
+
+> Flujo: editar → `git add` → `git commit` → `git push` publica en el Pages propio
+> en ~1 min. Para llevar cambios al sitio de la org hay que abrir PR al upstream o
+> pushear con una cuenta con permiso de escritura en la organización.
 
 ## Estructura de la carpeta
 
