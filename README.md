@@ -100,6 +100,16 @@ El archivo superó ampliamente la spec original v0.5. Construido en Claude web:
 - **Comparador de escenarios** (concreto/madera × comprar/fabricar).
 - **Exportar PDF con membrete** (logo, datos de empresa, tablas formales, firma).
 - **Deshacer punto** al trazar + **"Nuevo lote (mismo plano)"**.
+- **Folio consecutivo e irrepetible** (`COT-001`, `COT-002`…): se asigna
+  automáticamente al guardar, **no es editable** y nunca se reutiliza. Contador en
+  `localStorage` (`lindero:folioSeq`), autorreparable contra los registros
+  existentes. Botón **✚ Nueva** para empezar otra cotización.
+- **Editar cotización guardada:** al abrir una desde "Mis cotizaciones" entra en
+  modo edición (botón pasa a "Actualizar"); corregir datos o costos **actualiza el
+  mismo registro** y conserva su folio (no duplica).
+- **Cancelar en vez de borrar:** la ✕ marca la cotización como **Cancelada** y la
+  conserva en el histórico (filtro propio); el folio queda registrado y no se
+  reutiliza. Se puede reactivar cambiando su estatus.
 - **Splash screen** de inicio (secuencia O→F→Enter para entrar).
 - **PWA móvil:** manifest + íconos embebidos (instalable en iOS/Android), soporte
   táctil completo (tap = vértice, arrastre = pan), CSS responsivo (una columna,

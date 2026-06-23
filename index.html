@@ -237,7 +237,8 @@ document.addEventListener('DOMContentLoaded', function(){
   <div class="hdr-right">
     <button class="tb" onclick="abrirConfigEmpresa()">🏢 Datos de empresa</button>
     <button class="tb" onclick="abrirListaCotizaciones()">📂 Mis cotizaciones</button>
-    <button class="tb ok" onclick="guardarCotizacion()">💾 Guardar cotización</button>
+    <button class="tb" onclick="nuevaCotizacion()">✚ Nueva</button>
+    <button class="tb ok" id="btn-guardar" onclick="guardarCotizacion()">💾 Guardar cotización</button>
   </div>
 </div>
 
@@ -336,7 +337,7 @@ document.addEventListener('DOMContentLoaded', function(){
     <div class="sec-b">
       <div class="row2">
         <div class="f"><label>Nombre del cliente</label><input type="text" id="cli-n" placeholder="Ej. Juan Pérez" oninput="calc()"></div>
-        <div class="f"><label>Folio / referencia</label><input type="text" id="cli-f" placeholder="COT-001" oninput="calc()"></div>
+        <div class="f"><label>Folio <span style="color:var(--muted);font-weight:400;font-size:11px">· consecutivo, no editable</span></label><input type="text" id="cli-f" readonly tabindex="-1" title="El folio se asigna automáticamente, es consecutivo e irrepetible" style="background:var(--bg2);color:var(--accent);font-family:var(--fm);font-weight:600;cursor:default" value=""></div>
       </div>
       <div class="f"><label>Ubicación del lote</label><input type="text" id="cli-u" placeholder="Dirección, colonia, municipio…" oninput="calc()"></div>
     </div>
@@ -790,6 +791,7 @@ let modo='t'; // 't'=trazar 'p'=pan
 let pts=[];
 let ok=false;
 let nL=4, conPorton=true, mat='c';
+let cotizacionActualKey=null; // null = cotización nueva; si tiene valor, se edita ese registro
 
 const COLS=['#e8c84a','#4adb8a','#5b8dee','#f06060','#c97bf5','#f0a830','#40d9c7','#ff8c69','#a8ff78','#ff6b9d'];
 
@@ -1078,7 +1080,11 @@ function nuevoLoteMismoPlano(){
   nL=4;
   document.getElementById('ln').textContent=4;
   buildLados([]);
-  toast('Listo — traza el siguiente lote sobre el mismo plano', true);
+  // Es una cotización nueva (otro lote): soltar contexto de edición y mostrar folio nuevo
+  cotizacionActualKey=null;
+  asignarFolioPreview();
+  actualizarBotonGuardar();
+  toast('Listo — traza el siguiente lote sobre el mismo plano (folio '+document.getElementById('cli-f').value+')', true);
   document.getElementById('plano-wrap')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
@@ -1425,6 +1431,67 @@ const CAMPOS_SIMPLES=['cli-n','cli-f','cli-u','l-mz','l-nu','sep-v','po-a','marg
   'dim-lc-w','dim-lc-h','dim-lw-d','dim-lw-h','dim-e-w','dim-e-h'];
 const SELECTS_SIMPLES=['sep','modo-p','po-l','hebras'];
 
+// ── FOLIO CONSECUTIVO E IRREPETIBLE ───────────────────────────────
+// El folio se asigna automáticamente, corre consecutivo y no se reutiliza
+// (ni siquiera al cancelar una cotización). El contador vive en localStorage.
+const FOLIO_PREFIX='COT-';
+const FOLIO_SEQ_KEY='lindero:folioSeq';
+function fmtFolio(n){return FOLIO_PREFIX+String(n).padStart(3,'0');}
+// Máximo folio numérico ya usado entre los registros guardados (incluye canceladas)
+function maxFolioNum(){
+  let m=0;
+  Object.keys(localStorage).filter(k=>k.startsWith('cotizacion:')).forEach(k=>{
+    try{
+      const d=JSON.parse(localStorage.getItem(k));
+      if(d&&typeof d.folioNum==='number'&&d.folioNum>m) m=d.folioNum;
+      // Compat: registros antiguos sin folioNum, con folio tipo "COT-007"
+      const mt=(d&&d.resumenFolio||'').match(/(\d+)/);
+      if(mt){const n=parseInt(mt[1],10); if(n>m) m=n;}
+    }catch(e){}
+  });
+  return m;
+}
+// Siguiente folio SIN consumirlo (preview). Se autorrepara contra los registros existentes.
+function peekNextFolioNum(){
+  const seq=parseInt(localStorage.getItem(FOLIO_SEQ_KEY)||'0',10)||0;
+  return Math.max(seq, maxFolioNum())+1;
+}
+// Consume el siguiente folio (lo persiste) y lo devuelve formateado
+function consumeFolio(){
+  const n=peekNextFolioNum();
+  localStorage.setItem(FOLIO_SEQ_KEY, String(n));
+  return {num:n, folio:fmtFolio(n)};
+}
+// Muestra en el campo el folio que se asignará a la próxima cotización nueva
+function asignarFolioPreview(){
+  const el=document.getElementById('cli-f');
+  if(el) el.value=fmtFolio(peekNextFolioNum());
+}
+// Ajusta el texto del botón guardar según si estamos creando o editando
+function actualizarBotonGuardar(){
+  const b=document.getElementById('btn-guardar');
+  if(!b) return;
+  b.textContent = cotizacionActualKey ? '💾 Actualizar cotización' : '💾 Guardar cotización';
+}
+
+// Inicia una cotización nueva: limpia cliente+lote, suelta el contexto de edición
+// y muestra el siguiente folio (aún sin consumir hasta que se guarde).
+function nuevaCotizacion(){
+  if(!confirm('¿Iniciar una nueva cotización?\n\nSe limpiarán los datos del cliente y del lote. Si no guardaste la cotización actual, se perderá.\n\nLos precios y datos de empresa se conservan.')) return;
+  cotizacionActualKey=null;
+  ['cli-n','cli-u','l-mz','l-nu','area-plano'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  try{ borrar(); }catch(e){}
+  nL=4;
+  document.getElementById('ln').textContent=4;
+  buildLados([]);
+  updPortSel();
+  asignarFolioPreview();
+  actualizarBotonGuardar();
+  onDimChange();
+  toast('Nueva cotización — folio '+document.getElementById('cli-f').value+' (se asigna al guardar)', true);
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
 function toast(msg, ok){
   let t=document.getElementById('toast-msg');
   if(!t){
@@ -1453,23 +1520,54 @@ function recopilarEstado(){
 }
 
 async function guardarCotizacion(){
-  const folio=(document.getElementById('cli-f').value||'').trim();
   const nombre=(document.getElementById('cli-n').value||'').trim();
-  if(!folio && !nombre){
-    toast('Ingresa al menos folio o nombre de cliente antes de guardar', false);
+  if(!nombre){
+    toast('Ingresa el nombre del cliente antes de guardar', false);
     return;
   }
-  const estado=recopilarEstado();
   const total=document.getElementById('r-to').textContent;
-  estado.resumenTotal=total;
-  estado.resumenFolio=folio||'(sin folio)';
-  estado.resumenCliente=nombre||'(sin nombre)';
-  estado.estatus='pendiente';
 
-  const key='cotizacion:'+Date.now()+'-'+(folio||'sf').replace(/[^a-zA-Z0-9_-]/g,'');
+  // ¿Estamos editando una cotización ya existente? -> actualizar en el mismo registro
+  if(cotizacionActualKey && localStorage.getItem(cotizacionActualKey)){
+    try{
+      const prev=JSON.parse(localStorage.getItem(cotizacionActualKey));
+      const estado=recopilarEstado();
+      // Conservar identidad y trazabilidad del registro original
+      estado.folioNum=prev.folioNum;
+      estado.resumenFolio=prev.resumenFolio;
+      estado.estatus=prev.estatus||'pendiente';
+      estado.guardadoEn=prev.guardadoEn;
+      estado.actualizadoEn=new Date().toISOString();
+      estado.resumenTotal=total;
+      estado.resumenCliente=nombre;
+      estado.campos['cli-f']=prev.resumenFolio; // el folio no cambia al editar
+      localStorage.setItem(cotizacionActualKey, JSON.stringify(estado));
+      toast('✓ Cotización '+prev.resumenFolio+' actualizada', true);
+    }catch(e){
+      console.error(e);
+      toast('Error al actualizar: '+e.message, false);
+    }
+    return;
+  }
+
+  // Cotización NUEVA -> consumir el siguiente folio consecutivo
   try{
+    const {num, folio}=consumeFolio();
+    document.getElementById('cli-f').value=folio;
+    const estado=recopilarEstado();
+    estado.campos['cli-f']=folio;
+    estado.folioNum=num;
+    estado.resumenTotal=total;
+    estado.resumenFolio=folio;
+    estado.resumenCliente=nombre;
+    estado.estatus='pendiente';
+    estado.guardadoEn=new Date().toISOString();
+    const key='cotizacion:'+Date.now()+'-'+folio.replace(/[^a-zA-Z0-9_-]/g,'');
     localStorage.setItem(key, JSON.stringify(estado));
-    toast('✓ Cotización guardada', true);
+    cotizacionActualKey=key;            // a partir de ahora "Guardar" actualiza este registro
+    actualizarBotonGuardar();
+    calc();
+    toast('✓ Cotización guardada — folio '+folio, true);
   }catch(e){
     console.error(e);
     toast('Error al guardar: '+e.message, false);
@@ -1501,7 +1599,8 @@ async function abrirListaCotizaciones(filtro){
     const ESTATUS_INFO={
       pendiente:{label:'Pendiente',color:'var(--accent2)',bg:'#2a1f00'},
       aprobada:{label:'Aprobada',color:'var(--green)',bg:'#0d1f0d'},
-      rechazada:{label:'Rechazada',color:'var(--red)',bg:'#2a0d0d'}
+      rechazada:{label:'Rechazada',color:'var(--red)',bg:'#2a0d0d'},
+      cancelada:{label:'Cancelada',color:'var(--muted)',bg:'#161616'}
     };
 
     cont.innerHTML=`
@@ -1512,6 +1611,7 @@ async function abrirListaCotizaciones(filtro){
           <option value="pendiente">Pendientes (${items.filter(i=>(i.data.estatus||'pendiente')==='pendiente').length})</option>
           <option value="aprobada">Aprobadas (${items.filter(i=>i.data.estatus==='aprobada').length})</option>
           <option value="rechazada">Rechazadas (${items.filter(i=>i.data.estatus==='rechazada').length})</option>
+          <option value="cancelada">Canceladas (${items.filter(i=>i.data.estatus==='cancelada').length})</option>
         </select>
       </div>
       <div id="filas-cotizaciones"></div>
@@ -1528,13 +1628,14 @@ async function abrirListaCotizaciones(filtro){
       const fecha=data.guardadoEn?new Date(data.guardadoEn).toLocaleString('es-MX',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
       const est=data.estatus||'pendiente';
       const info=ESTATUS_INFO[est]||ESTATUS_INFO.pendiente;
+      const esCancelada=est==='cancelada';
       const row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;gap:.75rem;padding:.75rem;border:1px solid var(--border);border-radius:8px;margin-bottom:.6rem;background:var(--bg3)';
+      row.style.cssText='display:flex;align-items:center;gap:.75rem;padding:.75rem;border:1px solid var(--border);border-radius:8px;margin-bottom:.6rem;background:var(--bg3)'+(esCancelada?';opacity:.55':'');
       row.innerHTML=`
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:13px;color:var(--text);font-weight:600">${escHtml(data.resumenCliente||'(sin nombre)')}</span>
-            <span style="color:var(--muted);font-weight:400;font-size:13px">· ${escHtml(data.resumenFolio||'')}</span>
+            <span style="font-size:13px;color:var(--text);font-weight:600${esCancelada?';text-decoration:line-through':''}">${escHtml(data.resumenCliente||'(sin nombre)')}</span>
+            <span style="color:var(--accent);font-weight:600;font-size:12px;font-family:var(--fm)">${escHtml(data.resumenFolio||'')}</span>
             <span style="font-size:10px;font-family:var(--fm);color:${info.color};background:${info.bg};border:1px solid ${info.color};padding:1px 8px;border-radius:10px">${info.label}</span>
           </div>
           <div style="font-size:11px;color:var(--muted);font-family:var(--fm);margin-top:2px">${fecha} · Total: ${escHtml(data.resumenTotal||'$—')}</div>
@@ -1543,13 +1644,15 @@ async function abrirListaCotizaciones(filtro){
           <option value="pendiente"${est==='pendiente'?' selected':''}>Pendiente</option>
           <option value="aprobada"${est==='aprobada'?' selected':''}>Aprobada</option>
           <option value="rechazada"${est==='rechazada'?' selected':''}>Rechazada</option>
+          <option value="cancelada"${est==='cancelada'?' selected':''}>Cancelada</option>
         </select>
-        <button class="tb ok" style="flex-shrink:0">Cargar</button>
-        <button class="tb del" style="flex-shrink:0">✕</button>
+        <button class="tb ok" style="flex-shrink:0">${esCancelada?'Ver':'Abrir / editar'}</button>
+        ${esCancelada?'':'<button class="tb del" style="flex-shrink:0" title="Cancelar (pasa a histórico)">✕</button>'}
       `;
       row.querySelector('.sel-estatus-row').onchange=(e)=>cambiarEstatusCotizacion(key,e.target.value);
       row.querySelector('.tb.ok').onclick=()=>cargarCotizacion(key);
-      row.querySelector('.tb.del').onclick=()=>eliminarCotizacion(key);
+      const btnDel=row.querySelector('.tb.del');
+      if(btnDel) btnDel.onclick=()=>eliminarCotizacion(key);
       filasCont.appendChild(row);
     });
   }catch(e){
@@ -1620,8 +1723,13 @@ async function cargarCotizacion(key){
     }
 
     onDimChange(); // recalcula etiquetas + calc()
+
+    // Modo edición: a partir de aquí "Guardar" actualiza ESTE registro (mismo folio)
+    cotizacionActualKey=key;
+    actualizarBotonGuardar();
+
     cerrarListaCotizaciones();
-    toast('✓ Cotización cargada — el plano interactivo no se restaura, solo la imagen capturada', true);
+    toast('✓ '+(data.resumenFolio||'Cotización')+' abierta para editar — ajusta datos o costos y pulsa "Actualizar"', true);
     window.scrollTo({top:0,behavior:'smooth'});
   }catch(e){
     console.error(e);
@@ -1629,15 +1737,24 @@ async function cargarCotizacion(key){
   }
 }
 
+// "Eliminar" no borra: cancela la cotización y la conserva en el histórico.
+// Así el folio queda registrado y nunca se reutiliza.
 async function eliminarCotizacion(key){
-  if(!confirm('¿Eliminar esta cotización guardada? Esta acción no se puede deshacer.')) return;
   try{
-    localStorage.removeItem(key);
-    toast('Cotización eliminada', true);
+    const data=JSON.parse(localStorage.getItem(key));
+    if((data.estatus||'')==='cancelada'){
+      toast('Esta cotización ya está cancelada', false);
+      return;
+    }
+    if(!confirm('¿Cancelar la cotización '+(data.resumenFolio||'')+'?\n\nNo se elimina: pasa a CANCELADAS para el histórico y su folio no se reutiliza. Puedes reactivarla luego cambiando su estatus.')) return;
+    data.estatus='cancelada';
+    data.canceladaEn=new Date().toISOString();
+    localStorage.setItem(key, JSON.stringify(data));
+    toast('Cotización '+(data.resumenFolio||'')+' cancelada (conservada en histórico)', true);
     abrirListaCotizaciones();
   }catch(e){
     console.error(e);
-    toast('Error al eliminar: '+e.message, false);
+    toast('Error al cancelar: '+e.message, false);
   }
 }
 
@@ -2005,6 +2122,8 @@ updPortSel();
 onDimChange();
 cargarConfigEmpresaInicial();
 refrescarSelectorProveedores();
+asignarFolioPreview();      // muestra el folio que tomará la próxima cotización
+actualizarBotonGuardar();   // botón en estado "Guardar" (cotización nueva)
 </script>
 </body>
 </html>
