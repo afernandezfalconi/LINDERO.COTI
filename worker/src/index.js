@@ -92,6 +92,23 @@ export default {
       return json({ ok: true, service: 'lindero-coti-api' }, 200, origin);
     }
 
+    // Página amable en la raíz (esto es el backend, no la app)
+    if (request.method === 'GET' && (path === '' || path === '/')) {
+      const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LINDERO.COTI · API</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#13241f;color:#e8f0ea;font-family:system-ui,sans-serif;text-align:center;padding:2rem}
+.c{max-width:460px}h1{color:#89D7B7;font-size:1.4rem;margin:.2rem 0}
+p{color:#9fb3aa;line-height:1.6}a{display:inline-block;margin-top:1rem;background:#89D7B7;color:#13241f;
+text-decoration:none;font-weight:700;padding:.7rem 1.4rem;border-radius:8px}</style></head>
+<body><div class="c"><h1>LINDERO.COTI · API</h1>
+<p>Este es el <b>servidor (backend)</b> del cotizador. No es una página para navegar.
+Abre la aplicación:</p>
+<a href="https://afernandezfalconi.github.io/LINDERO.COTI/">Abrir LINDERO.COTI</a></div></body></html>`;
+      return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', ...corsHeaders(origin) } });
+    }
+
     // Todo lo demás requiere contraseña
     if (!passwordOK(request, env)) {
       return json({ error: 'No autorizado' }, 401, origin);
