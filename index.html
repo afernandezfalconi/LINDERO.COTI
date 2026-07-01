@@ -283,6 +283,13 @@ function cerrarSesion(){
   irAlHome();
 }
 
+// Cierre de sesión manual (botón "Salir") con confirmación
+function cerrarSesionManual(){
+  if(!confirm('¿Cerrar sesión?\n\nTendrás que ingresar la contraseña del equipo de nuevo para volver a entrar.')) return;
+  cerrarSesion();
+  toast('Sesión cerrada', true);
+}
+
 // Clic en el logo / nombre del header -> vuelve al inicio
 function irAlHome(){
   const splash=document.getElementById('splash');
@@ -302,6 +309,7 @@ function irAlHome(){
     <button class="tb" onclick="abrirListaCotizaciones()">📂 Mis cotizaciones</button>
     <button class="tb" onclick="nuevaCotizacion()">✚ Nueva</button>
     <button class="tb ok" id="btn-guardar" onclick="guardarCotizacion()">💾 Guardar cotización</button>
+    <button class="tb" onclick="cerrarSesionManual()" title="Cerrar sesión">🔒 Salir</button>
   </div>
 </div>
 
