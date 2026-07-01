@@ -1757,6 +1757,7 @@ async function abrirListaCotizaciones(filtro){
           <option value="rechazada">Rechazadas (${items.filter(i=>i.data.estatus==='rechazada').length})</option>
           <option value="cancelada">Canceladas (${items.filter(i=>i.data.estatus==='cancelada').length})</option>
         </select>
+        <button class="tb" style="margin-left:auto;padding:5px 10px" onclick="abrirListaCotizaciones(document.getElementById('filtro-estatus')?document.getElementById('filtro-estatus').value:'')" title="Volver a cargar desde la nube">🔄 Actualizar</button>
       </div>
       <div id="filas-cotizaciones"></div>
     `;
@@ -1915,8 +1916,8 @@ async function migrarLocalesANube(){
       ok++;
     }catch(e){ console.error(e); fail++; }
   }
-  toast('Migración: '+ok+' subida(s)'+(fail?' · '+fail+' con error':''), fail===0);
-  abrirListaCotizaciones();
+  toast('✓ '+ok+' subida(s) a la nube'+(fail?' · '+fail+' con error':'')+'. Pueden tardar unos segundos en aparecer.', fail===0);
+  setTimeout(()=>abrirListaCotizaciones(), 1800); // dar tiempo a que KV propague la lista
 }
 
 // ── CATÁLOGO DE PROVEEDORES ────────────────────────────────────────
