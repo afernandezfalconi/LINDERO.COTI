@@ -41,10 +41,16 @@ function json(data, status, origin) {
   });
 }
 
+// Contraseña vigente: la de KV (editable desde la app) o, si no hay, el secret.
+async function currentPassword(env) {
+  const kv = await env.COTIZACIONES.get('meta:password');
+  return (kv != null && kv !== '') ? kv : (env.APP_PASSWORD || '');
+}
+
 // Comparación en tiempo (casi) constante para la contraseña
-function passwordOK(request, env) {
+async function passwordOK(request, env) {
   const pw = request.headers.get('X-App-Password') || '';
-  const expected = env.APP_PASSWORD || '';
+  const expected = await currentPassword(env);
   if (!expected || pw.length !== expected.length) return false;
   let diff = 0;
   for (let i = 0; i < pw.length; i++) diff |= pw.charCodeAt(i) ^ expected.charCodeAt(i);
@@ -110,7 +116,7 @@ Abre la aplicación:</p>
     }
 
     // Todo lo demás requiere contraseña
-    if (!passwordOK(request, env)) {
+    if (!(await passwordOK(request, env))) {
       return json({ error: 'No autorizado' }, 401, origin);
     }
 
@@ -127,6 +133,15 @@ Abre la aplicación:</p>
           cursor = res.list_complete ? null : res.cursor;
         } while (cursor);
         return json({ items: out }, 200, origin);
+      }
+
+      // Cambiar la contraseña del equipo (ya validada la actual arriba)
+      if (request.method === 'POST' && path === '/api/change-password') {
+        const body = await request.json();
+        const nueva = String((body && body.nueva) || '').trim();
+        if (nueva.length < 4) return json({ error: 'La contraseña debe tener al menos 4 caracteres' }, 400, origin);
+        await env.COTIZACIONES.put('meta:password', nueva);
+        return json({ ok: true }, 200, origin);
       }
 
       // Folio preview
