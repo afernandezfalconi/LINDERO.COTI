@@ -198,6 +198,15 @@ select option{background:var(--bg3)}
     <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#428475;margin-top:4px;letter-spacing:.5px">LÍMITES. PROTECCIÓN. PRECISIÓN.</div>
   </div>
 
+  <div id="splash-login" style="display:flex;flex-direction:column;align-items:center;gap:.55rem;width:min(300px,80vw)">
+    <div id="splash-hint" style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#428475">Ingresa la contraseña del equipo</div>
+    <input id="splash-pw" type="password" inputmode="numeric" placeholder="Contraseña" autocomplete="current-password"
+      style="width:100%;padding:.7rem 1rem;border:1px solid #428475;border-radius:8px;background:#fff;color:#1A312C;font-size:16px;text-align:center;outline:none">
+    <button id="splash-btn" onclick="entrarApp()"
+      style="width:100%;padding:.7rem 1rem;border:none;border-radius:8px;background:#1A312C;color:#FFF4E1;font-weight:700;font-size:15px;cursor:pointer">Entrar</button>
+    <div id="splash-err" style="display:none;color:#c0392b;font-size:12px;font-family:'IBM Plex Mono',monospace"></div>
+  </div>
+
 </div>
 
 <script>
@@ -205,44 +214,83 @@ select option{background:var(--bg3)}
 document.addEventListener('DOMContentLoaded', function(){
   const hdrLogo = document.querySelector('.hdr-left img');
   if(hdrLogo) document.getElementById('splash-logo').src = hdrLogo.src;
+  actualizarSplash();
+  const inp=document.getElementById('splash-pw');
+  if(inp) inp.addEventListener('keydown', function(e){ if(e.key==='Enter') entrarApp(); });
 });
 
-// Secuencia de acceso: O → F → Enter
-let splashSeqStep = 0;
+// ── LOGIN (la contraseña es solo la entrada; no se pide en ninguna acción) ──
 let splashDismissTimer = null;
-function resetSplashSeq(){ splashSeqStep = 0; }
-(function(){
-  const SEQ = ['o','f','enter'];
 
-  document.addEventListener('keydown', function(e){
-    const splash = document.getElementById('splash');
-    if(!splash || splash.style.display === 'none') return;
+function estaAutenticado(){ return !!getAppPassword(); }
 
-    const key = e.key.toLowerCase();
-    if(key === SEQ[splashSeqStep]){
-      splashSeqStep++;
-      if(splashSeqStep === SEQ.length){
-        splashSeqStep = 0;
-        clearTimeout(splashDismissTimer);
-        splashDismissTimer = setTimeout(()=>{
-          splash.style.opacity = '0';
-          splashDismissTimer = setTimeout(()=>{ splash.style.display='none'; }, 500);
-        }, 150);
-      }
-    } else {
-      splashSeqStep = 0;
-    }
-  });
-})();
+// Valida una contraseña contra el servidor SIN guardarla todavía
+async function validarPassword(pw){
+  try{
+    const r=await fetch(API_BASE+'/api/next-folio', {headers:{'X-App-Password':pw}});
+    return r.ok; // true = correcta, false = incorrecta
+  }catch(e){ return null; } // null = error de red
+}
 
-// Clic en el logo / nombre del header -> vuelve al home (splash)
+// Ajusta la pantalla de inicio según haya sesión (contraseña) o no
+function actualizarSplash(){
+  const authed=estaAutenticado();
+  const inp=document.getElementById('splash-pw');
+  const btn=document.getElementById('splash-btn');
+  const err=document.getElementById('splash-err');
+  const hint=document.getElementById('splash-hint');
+  if(err) err.style.display='none';
+  if(inp){ inp.style.display=authed?'none':'block'; inp.value=''; }
+  if(btn){ btn.disabled=false; btn.textContent=authed?'Entrar →':'Entrar'; }
+  if(hint) hint.textContent=authed?'Sesión iniciada' : 'Ingresa la contraseña del equipo';
+  if(!authed && inp) setTimeout(()=>{ try{ inp.focus(); }catch(e){} },120);
+}
+
+// Botón "Entrar": con sesión, solo entra; sin sesión, valida la contraseña
+async function entrarApp(){
+  if(estaAutenticado()){ cerrarSplash(); return; }
+  const inp=document.getElementById('splash-pw');
+  const btn=document.getElementById('splash-btn');
+  const err=document.getElementById('splash-err');
+  const pw=(inp.value||'').trim();
+  if(!pw){ err.textContent='Escribe la contraseña'; err.style.display='block'; return; }
+  btn.disabled=true; btn.textContent='Entrando…'; err.style.display='none';
+  const ok=await validarPassword(pw);
+  btn.disabled=false; btn.textContent='Entrar';
+  if(ok===true){
+    setAppPassword(pw);
+    cerrarSplash();
+    asignarFolioPreview();
+  }else if(ok===false){
+    err.textContent='Contraseña incorrecta'; err.style.display='block';
+    try{ inp.select(); }catch(e){}
+  }else{
+    err.textContent='Sin conexión con el servidor. Revisa tu internet.'; err.style.display='block';
+  }
+}
+
+function cerrarSplash(){
+  const splash=document.getElementById('splash');
+  if(!splash) return;
+  clearTimeout(splashDismissTimer);
+  splash.style.opacity='0';
+  splashDismissTimer=setTimeout(()=>{ splash.style.display='none'; }, 500);
+}
+
+// Cierra sesión (p.ej. si el servidor rechaza la contraseña) y muestra el login
+function cerrarSesion(){
+  localStorage.removeItem(PW_KEY);
+  irAlHome();
+}
+
+// Clic en el logo / nombre del header -> vuelve al inicio
 function irAlHome(){
   const splash=document.getElementById('splash');
   if(!splash) return;
-  clearTimeout(splashDismissTimer); // cancela cualquier cierre en curso
-  resetSplashSeq();                 // rearma la secuencia O→F→Enter
+  clearTimeout(splashDismissTimer);
   splash.style.display='flex';
   splash.style.opacity='1';
+  actualizarSplash();
   window.scrollTo(0,0);
 }
 </script>
@@ -1459,13 +1507,12 @@ class ApiError extends Error{ constructor(code,msg){ super(msg); this.code=code;
 function getAppPassword(){ return localStorage.getItem(PW_KEY)||''; }
 function setAppPassword(pw){ localStorage.setItem(PW_KEY, pw); }
 
-// Pide la contraseña del equipo una sola vez (se guarda en el navegador)
+// La sesión ya garantiza la contraseña (login al entrar). Si por algo no hay,
+// se muestra el login de nuevo. Nunca se pide en medio de una acción.
 async function asegurarPassword(){
   if(getAppPassword()) return true;
-  const pw=prompt('Contraseña del equipo para las cotizaciones en la nube:');
-  if(pw===null || !pw.trim()) return false;
-  setAppPassword(pw.trim());
-  return true;
+  irAlHome();
+  return false;
 }
 
 async function apiFetch(path, opts){
@@ -1485,8 +1532,8 @@ async function apiFetch(path, opts){
 
 function manejarErrorApi(e, accion){
   if(e && e.code==='AUTH'){
-    localStorage.removeItem(PW_KEY);
-    toast('Contraseña incorrecta. Vuelve a intentar la acción.', false);
+    toast('Sesión no válida. Vuelve a iniciar sesión.', false);
+    cerrarSesion();
   } else {
     toast('Error al '+accion+': '+((e&&e.message)||e), false);
   }
