@@ -20,11 +20,29 @@ Herramienta web **de uso interno** de Luna Grupo Inmobiliario para cotizar el
 > en ~1 min. Para llevar cambios al sitio de la org hay que abrir PR al upstream o
 > pushear con una cuenta con permiso de escritura en la organización.
 
+### Backend en la nube (Cloudflare Worker + KV)
+
+Las cotizaciones se guardan en la nube y son **consultables desde cualquier
+dispositivo**. El código del backend está en [`worker/`](worker/) (ver su README).
+
+- **API:** `https://lindero-coti-api.lindero-coti.workers.dev`
+- **Folio global:** lo asigna el servidor (consecutivo y único entre todos los
+  equipos, ya no por-navegador).
+- **Auth:** contraseña compartida del equipo (se pide una vez y se guarda en el
+  navegador). Se envía en el header `X-App-Password`.
+- **Migración:** si tenías cotizaciones guardadas solo en un navegador (versión
+  anterior), en "Mis cotizaciones" aparece un botón para **subirlas a la nube**.
+- Redeploy del backend: `cd worker && npx wrangler@4 deploy`.
+
 ## Estructura de la carpeta
 
 ```
 LINDERO.COTI/
 ├── index.html                          # App completa (V4.00) — punto de entrada
+├── worker/                             # Backend API (Cloudflare Worker + KV)
+│   ├── src/index.js
+│   ├── wrangler.toml
+│   └── README.md
 ├── PROMPT-MAESTRO-PosteoCot-v0.5.txt   # Especificación funcional original (v0.5)
 ├── assets/
 │   └── lindero-logo.svg                # Logo oficial
