@@ -1,0 +1,12 @@
+name = "lindero-coti-api"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+# La contraseña compartida se guarda como secret (no en este archivo):
+#   npx wrangler secret put APP_PASSWORD
+# El binding KV se rellena tras crear el namespace:
+#   npx wrangler kv namespace create COTIZACIONES
+[[kv_namespaces]]
+binding = "COTIZACIONES"
+id = "c908b73db898406f88532f448a5198f9"
