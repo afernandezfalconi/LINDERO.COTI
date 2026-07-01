@@ -20,8 +20,17 @@ dispositivo. El **folio es global** y lo asigna el servidor (consecutivo, único
 | GET | `/api/cotizaciones/:id` | Registro completo |
 | POST | `/api/cotizaciones` | Crear (asigna folio nuevo) |
 | PUT | `/api/cotizaciones/:id` | Actualizar (conserva folio). `{"estatus":"cancelada"}` = cancelar |
+| POST | `/api/change-password` | Cambia la contraseña del equipo. Body `{"nueva":"…"}` (min 4) |
 
 Todas menos `/api/health` requieren `X-App-Password`.
+
+### Contraseña
+
+La contraseña vigente se guarda en KV (`meta:password`) y **se puede cambiar
+desde la app** (botón 🔑 Contraseña) o vía `/api/change-password`. El secret
+`APP_PASSWORD` es solo el **valor inicial/respaldo**: se usa mientras `meta:password`
+no exista. Para forzar un reset borra la clave KV:
+`npx wrangler@4 kv key delete "meta:password" --namespace-id <id> --remote`.
 
 ## Operación
 
