@@ -47,7 +47,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--fb);font-size:15px
 .fp>.sec{width:100%;max-width:760px}
 .rp{background:var(--bg2);padding:2rem}
 .sec{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:1.5rem;overflow:hidden}
-.sec-h{padding:.8rem 1.1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.7rem;background:#0f211b}
+.sec-h{padding:.8rem 1.1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.7rem;background:#0f211b;cursor:pointer;user-select:none}
+.sec-h:hover{background:#12291f}
+.sec-h::after{content:"";width:8px;height:8px;border:solid var(--muted);border-width:0 2px 2px 0;transform:rotate(45deg);transition:transform .2s;margin-left:auto;margin-right:2px;flex-shrink:0}
+.sec-h:hover::after{border-color:var(--accent)}
+.sec.collapsed .sec-h{border-bottom:none}
+.sec.collapsed .sec-h::after{transform:rotate(-45deg)}
+.sec.collapsed .sec-b{display:none}
 .snum{width:24px;height:24px;border-radius:4px;background:var(--accent);color:#07130f;font-family:var(--fm);font-size:12px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--glow)}
 .stit{font-family:var(--fh);font-size:1rem;font-weight:600;letter-spacing:.3px}
 .sec-b{padding:1.25rem}
@@ -3884,6 +3890,14 @@ refrescarSelectorProveedores();
 asignarFolioPreview();      // muestra el folio que tomará la próxima cotización
 actualizarBotonGuardar();   // botón en estado "Guardar" (cotización nueva)
 actualizarUIUsuario();      // mostrar usuario actual
+
+// ── Secciones plegables (acordeón) — clic en el encabezado despliega/oculta ──
+document.addEventListener('click', function(e){
+  const h = e.target.closest('.sec-h');
+  if(h && h.parentElement && h.parentElement.classList.contains('sec')){
+    h.parentElement.classList.toggle('collapsed');
+  }
+});
 </script>
 </body>
 </html>
