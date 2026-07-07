@@ -176,6 +176,7 @@ select option{background:var(--bg3)}
 .ph-firma-linea{font-size:14px;color:#333}
 .ph-firma-label{font-size:10px;color:#777;margin-top:4px}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -357,6 +358,7 @@ function irAlHome(){
     <button class="tb" onclick="abrirConfigEmpresa()">🏢 Datos de empresa</button>
     <button class="tb" onclick="abrirListaCotizaciones()">📂 Mis cotizaciones</button>
     <button class="tb" onclick="abrirFinanzas()">💰 Finanzas</button>
+    <button class="tb" id="menu-proveedores" style="display:none" onclick="abrirProveedores()">🏭 Proveedores</button>
     <button class="tb" id="menu-usuarios" style="display:none" onclick="abrirPanelAdmin()">👥 Usuarios</button>
     <button class="tb" id="menu-auditoria" style="display:none" onclick="abrirAuditoria()">📊 Auditoría</button>
     <button class="tb" onclick="nuevaCotizacion()">✚ Nueva</button>
@@ -3079,6 +3081,9 @@ function actualizarUIPermisos(user){
     el.disabled=!(user.permissions&PERMISSIONS.CREATE_COTIZACIONES);
   });
 
+  const menuProveedores=document.getElementById('menu-proveedores');
+  if(menuProveedores) menuProveedores.style.display=user.email==='afernandezfalconi@gmail.com'?'block':'none';
+
   const menuAdmin=document.getElementById('menu-usuarios');
   if(menuAdmin) menuAdmin.style.display=user.email==='afernandezfalconi@gmail.com'?'block':'none';
 
@@ -3257,6 +3262,279 @@ async function cargarAuditoria(){
 
 async function filtrarAuditoria(){
   await cargarAuditoria();
+}
+
+// ── FASE 4: GESTIÓN DE PROVEEDORES ────────────────────────────────
+let proveedoresGlobal = [];
+
+async function abrirProveedores(){
+  if(obtenerUsuarioActual().email!=='afernandezfalconi@gmail.com'){
+    alert('Solo admin');
+    return;
+  }
+
+  const existente=document.getElementById('providers-modal');
+  if(existente) existente.remove();
+
+  crearPanelProveedores();
+  await cargarProveedores();
+}
+
+function cerrarProveedores(){
+  const modal=document.getElementById('providers-modal');
+  if(modal) modal.remove();
+}
+
+function crearPanelProveedores(){
+  const modalHTML=`
+  <div id="providers-modal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999">
+    <div style="background:white;border-radius:8px;max-width:1000px;width:90%;max-height:90vh;overflow:auto;padding:2rem">
+      <h2 style="margin-top:0">🏭 Gestión de Proveedores</h2>
+
+      <div style="margin-bottom:2rem;padding:1rem;background:var(--bg3);border-radius:6px">
+        <h3>➕ Agregar Proveedor</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+          <input id="prov-nombre" type="text" placeholder="Nombre" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+          <select id="prov-categoria" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+            <option value="">-- Categoría --</option>
+            <option value="postes">Postes</option>
+            <option value="alambre">Alambre</option>
+            <option value="herramientas">Herramientas</option>
+            <option value="otros">Otros</option>
+          </select>
+          <input id="prov-telefono" type="text" placeholder="Teléfono" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+          <input id="prov-email" type="email" placeholder="Email" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+          <input id="prov-precio" type="number" placeholder="Precio inicial" step="0.01" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+          <input id="prov-notas" type="text" placeholder="Notas" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+        </div>
+        <button class="btnp ok" onclick="agregarProveedor()" style="margin-top:1rem;width:100%">Crear Proveedor</button>
+      </div>
+
+      <h3>Proveedores Registrados</h3>
+      <div id="providers-list" style="display:grid;gap:1rem">
+        <p style="color:var(--muted)">Cargando...</p>
+      </div>
+
+      <button class="btnp" style="width:100%;margin-top:2rem;background:var(--bg3);border:1px solid var(--border)" onclick="cerrarProveedores()">Cerrar</button>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+async function cargarProveedores(){
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  try{
+    const resp=await fetch(API_BASE+'/api/providers', {headers:{'X-Auth-Token':token,'X-User-Email':user.email}});
+    if(!resp.ok) throw new Error('Error al cargar proveedores');
+    const data=await resp.json();
+
+    proveedoresGlobal=data.items||[];
+    const container=document.getElementById('providers-list');
+    container.innerHTML='';
+
+    if(proveedoresGlobal.length===0){
+      container.innerHTML='<p style="color:var(--muted)">No hay proveedores creados</p>';
+      return;
+    }
+
+    proveedoresGlobal.forEach(p=>{
+      const stats=p.historialPrecios||[];
+      const precioMin=stats.length>0?Math.min(...stats.map(h=>h.precio)):p.precioActual;
+      const precioMax=stats.length>0?Math.max(...stats.map(h=>h.precio)):p.precioActual;
+
+      const card=`
+      <div style="border:1px solid var(--border);border-radius:6px;padding:1.5rem;background:var(--bg3)">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:1rem">
+          <div>
+            <h4 style="margin:0;color:var(--accent1)">${p.nombre}</h4>
+            <p style="margin:0.5rem 0 0 0;font-size:12px;color:var(--muted)">Categoría: <strong>${p.categoria}</strong></p>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:18px;font-weight:bold;color:var(--accent2)">$${p.precioActual}</div>
+            <div style="font-size:11px;color:var(--muted)">Actualizado: ${new Date(p.ultimaActualizacion).toLocaleDateString('es-MX')}</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;margin:1rem 0;font-size:12px">
+          <div style="background:white;padding:0.5rem;border-radius:4px">
+            <div style="color:var(--muted)">Mín</div>
+            <div style="font-weight:bold">$${precioMin}</div>
+          </div>
+          <div style="background:white;padding:0.5rem;border-radius:4px">
+            <div style="color:var(--muted)">Máx</div>
+            <div style="font-weight:bold">$${precioMax}</div>
+          </div>
+          <div style="background:white;padding:0.5rem;border-radius:4px">
+            <div style="color:var(--muted)">Datos</div>
+            <div style="font-weight:bold">${stats.length}</div>
+          </div>
+          <div style="background:white;padding:0.5rem;border-radius:4px">
+            <div style="color:var(--muted)">📞</div>
+            <div style="font-weight:bold;font-size:10px">${p.contacto?.telefono||'—'}</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:0.5rem;margin-top:1rem">
+          <button class="btnp" onclick="mostrarActualizarPrecio(${p.id})" style="flex:1;padding:0.5rem;font-size:12px">📈 Actualizar Precio</button>
+          <button class="btnp" onclick="mostrarGraficoVolatilidad(${p.id})" style="flex:1;padding:0.5rem;font-size:12px">📊 Gráfico</button>
+          <button class="btnp" onclick="eliminarProveedor(${p.id})" style="flex:1;padding:0.5rem;background:#e74c3c;font-size:12px">🗑️ Eliminar</button>
+        </div>
+      </div>`;
+      container.insertAdjacentHTML('beforeend', card);
+    });
+  }catch(e){
+    console.error('Error cargando proveedores:', e);
+    document.getElementById('providers-list').innerHTML=`<p style="color:red">Error: ${e.message}</p>`;
+  }
+}
+
+async function agregarProveedor(){
+  const nombre=document.getElementById('prov-nombre').value.trim();
+  const categoria=document.getElementById('prov-categoria').value;
+  const telefono=document.getElementById('prov-telefono').value.trim();
+  const email=document.getElementById('prov-email').value.trim();
+  const precio=parseFloat(document.getElementById('prov-precio').value);
+  const notas=document.getElementById('prov-notas').value.trim();
+
+  if(!nombre||!categoria||!precio){
+    alert('Completa nombre, categoría y precio');
+    return;
+  }
+
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  try{
+    const resp=await fetch(API_BASE+'/api/providers', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
+      body:JSON.stringify({nombre,categoria,precioActual:precio,notas,contacto:{telefono,email}})
+    });
+    if(!resp.ok) throw new Error('Error al crear');
+
+    document.getElementById('prov-nombre').value='';
+    document.getElementById('prov-categoria').value='';
+    document.getElementById('prov-telefono').value='';
+    document.getElementById('prov-email').value='';
+    document.getElementById('prov-precio').value='';
+    document.getElementById('prov-notas').value='';
+
+    await cargarProveedores();
+    alert('Proveedor creado');
+  }catch(e){
+    alert('Error: '+e.message);
+  }
+}
+
+function mostrarActualizarPrecio(providerId){
+  const precio=prompt('Nuevo precio:');
+  if(!precio) return;
+  const motivo=prompt('Motivo del cambio:') || '';
+  actualizarPrecio(providerId, parseFloat(precio), motivo);
+}
+
+async function actualizarPrecio(providerId, precio, motivo){
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  try{
+    const resp=await fetch(API_BASE+'/api/providers/'+providerId+'/price', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
+      body:JSON.stringify({precio,motivo})
+    });
+    if(!resp.ok) throw new Error('Error');
+    await cargarProveedores();
+    alert('Precio actualizado');
+  }catch(e){
+    alert('Error: '+e.message);
+  }
+}
+
+async function eliminarProveedor(providerId){
+  if(!confirm('¿Eliminar proveedor?')) return;
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  try{
+    const resp=await fetch(API_BASE+'/api/providers/'+providerId, {
+      method:'DELETE',
+      headers:{'X-Auth-Token':token,'X-User-Email':user.email}
+    });
+    if(!resp.ok) throw new Error('Error');
+    await cargarProveedores();
+    alert('Proveedor eliminado');
+  }catch(e){
+    alert('Error: '+e.message);
+  }
+}
+
+async function mostrarGraficoVolatilidad(providerId){
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  try{
+    const resp=await fetch(API_BASE+'/api/providers/'+providerId, {
+      headers:{'X-Auth-Token':token,'X-User-Email':user.email}
+    });
+    if(!resp.ok) throw new Error('Error');
+    const provider=await resp.json();
+
+    const stats=provider.historialPrecios||[];
+    if(stats.length===0){
+      alert('Sin datos para graficar');
+      return;
+    }
+
+    const reversedStats=stats.reverse();
+    const fechas=reversedStats.map(h=>new Date(h.fecha).toLocaleDateString('es-MX'));
+    const precios=reversedStats.map(h=>h.precio);
+
+    const modalHTML=`
+    <div id="chart-modal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10000">
+      <div style="background:white;border-radius:8px;width:90%;max-width:800px;padding:2rem">
+        <h3 style="margin-top:0">${provider.nombre} - Volatilidad de Precios</h3>
+        <canvas id="chart-canvas" style="max-height:400px"></canvas>
+        <button class="btnp" onclick="document.getElementById('chart-modal').remove()" style="width:100%;margin-top:1rem">Cerrar</button>
+      </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    setTimeout(()=>{
+      if(typeof Chart!=='undefined'){
+        new Chart(document.getElementById('chart-canvas'), {
+          type:'line',
+          data:{
+            labels:fechas,
+            datasets:[{
+              label:'Precio ($)',
+              data:precios,
+              borderColor:'#89D7B7',
+              backgroundColor:'rgba(137,215,183,0.1)',
+              tension:0.4,
+              fill:true,
+              pointBackgroundColor:'#1A312C',
+              pointBorderColor:'#89D7B7',
+              pointRadius:5
+            }]
+          },
+          options:{
+            responsive:true,
+            maintainAspectRatio:true,
+            plugins:{
+              legend:{display:true},
+              title:{display:true,text:'Historial de Precios'}
+            },
+            scales:{
+              y:{beginAtZero:false,ticks:{callback:v=>'$'+v.toFixed(2)}}
+            }
+          }
+        });
+      }else{
+        alert('Chart.js no cargado. Agrega <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>');
+      }
+    },100);
+  }catch(e){
+    alert('Error: '+e.message);
+  }
 }
 
 // ── INIT ──────────────────────────────────────────────────────────
