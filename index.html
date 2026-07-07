@@ -199,9 +199,11 @@ select option{background:var(--bg3)}
   </div>
 
   <div id="splash-login" style="display:flex;flex-direction:column;align-items:center;gap:.55rem;width:min(300px,80vw)">
-    <div id="splash-hint" style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#428475">Ingresa la contraseña del equipo</div>
-    <input id="splash-pw" type="password" inputmode="numeric" placeholder="Contraseña" autocomplete="current-password"
-      style="width:100%;padding:.7rem 1rem;border:1px solid #428475;border-radius:8px;background:#fff;color:#1A312C;font-size:16px;text-align:center;outline:none">
+    <div id="splash-hint" style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#428475">Ingresa tu email y contraseña</div>
+    <input id="splash-email" type="email" placeholder="Email" autocomplete="username"
+      style="width:100%;padding:.7rem 1rem;border:1px solid #428475;border-radius:8px;background:#fff;color:#1A312C;font-size:16px;outline:none">
+    <input id="splash-pw" type="password" placeholder="Contraseña" autocomplete="current-password"
+      style="width:100%;padding:.7rem 1rem;border:1px solid #428475;border-radius:8px;background:#fff;color:#1A312C;font-size:16px;outline:none">
     <button id="splash-btn" onclick="entrarApp()"
       style="width:100%;padding:.7rem 1rem;border:none;border-radius:8px;background:#1A312C;color:#FFF4E1;font-weight:700;font-size:15px;cursor:pointer">Entrar</button>
     <div id="splash-err" style="display:none;color:#c0392b;font-size:12px;font-family:'IBM Plex Mono',monospace"></div>
@@ -215,57 +217,69 @@ document.addEventListener('DOMContentLoaded', function(){
   const hdrLogo = document.querySelector('.hdr-left img');
   if(hdrLogo) document.getElementById('splash-logo').src = hdrLogo.src;
   actualizarSplash();
+  const inp2=document.getElementById('splash-email');
   const inp=document.getElementById('splash-pw');
-  if(inp) inp.addEventListener('keydown', function(e){ if(e.key==='Enter') entrarApp(); });
+  [inp2, inp].forEach(el=>{ if(el) el.addEventListener('keydown', function(e){ if(e.key==='Enter') entrarApp(); }); });
 });
 
 // ── LOGIN (la contraseña es solo la entrada; no se pide en ninguna acción) ──
 let splashDismissTimer = null;
 
-function estaAutenticado(){ return !!getAppPassword(); }
+function estaAutenticado(){ return !!obtenerToken(); }
 
-// Valida una contraseña contra el servidor SIN guardarla todavía
-async function validarPassword(pw){
+// Valida email+contraseña contra el servidor y obtiene token
+async function validarLogin(email, pw){
   try{
-    const r=await fetch(API_BASE+'/api/next-folio', {headers:{'X-App-Password':pw}});
-    return r.ok; // true = correcta, false = incorrecta
-  }catch(e){ return null; } // null = error de red
+    const r=await fetch(API_BASE+'/api/auth/login', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email,password:pw})
+    });
+    if(!r.ok) return null; // error o credenciales inválidas
+    const data=await r.json();
+    return data; // {token, email, rol, permissions}
+  }catch(e){ return null; } // error de red
 }
 
-// Ajusta la pantalla de inicio según haya sesión (contraseña) o no
+// Ajusta la pantalla de inicio según haya sesión o no
 function actualizarSplash(){
   const authed=estaAutenticado();
   const inp=document.getElementById('splash-pw');
+  const inp2=document.getElementById('splash-email');
   const btn=document.getElementById('splash-btn');
   const err=document.getElementById('splash-err');
   const hint=document.getElementById('splash-hint');
   if(err) err.style.display='none';
   if(inp){ inp.style.display=authed?'none':'block'; inp.value=''; }
+  if(inp2){ inp2.style.display=authed?'none':'block'; inp2.value=''; }
   if(btn){ btn.disabled=false; btn.textContent=authed?'Entrar →':'Entrar'; }
-  if(hint) hint.textContent=authed?'Sesión iniciada' : 'Ingresa la contraseña del equipo';
-  if(!authed && inp) setTimeout(()=>{ try{ inp.focus(); }catch(e){} },120);
+  if(hint) hint.textContent=authed?'Sesión iniciada' : 'Ingresa tu email y contraseña';
+  if(!authed && inp2) setTimeout(()=>{ try{ inp2.focus(); }catch(e){} },120);
 }
 
-// Botón "Entrar": con sesión, solo entra; sin sesión, valida la contraseña
+// Botón "Entrar": con sesión, solo entra; sin sesión, valida email+contraseña
 async function entrarApp(){
   if(estaAutenticado()){ cerrarSplash(); return; }
+  const inp2=document.getElementById('splash-email');
   const inp=document.getElementById('splash-pw');
   const btn=document.getElementById('splash-btn');
   const err=document.getElementById('splash-err');
+  const email=(inp2.value||'').trim().toLowerCase();
   const pw=(inp.value||'').trim();
-  if(!pw){ err.textContent='Escribe la contraseña'; err.style.display='block'; return; }
+  if(!email){ err.textContent='Escribe tu email'; err.style.display='block'; return; }
+  if(!pw){ err.textContent='Escribe tu contraseña'; err.style.display='block'; return; }
   btn.disabled=true; btn.textContent='Entrando…'; err.style.display='none';
-  const ok=await validarPassword(pw);
+  const ok=await validarLogin(email, pw);
   btn.disabled=false; btn.textContent='Entrar';
-  if(ok===true){
-    setAppPassword(pw);
+  if(ok){
+    guardarSesion(ok.token, {email:ok.email, rol:ok.rol, permissions:ok.permissions});
+    resetearInactivity();
+    actualizarUIUsuario();
     cerrarSplash();
     asignarFolioPreview();
-  }else if(ok===false){
-    err.textContent='Contraseña incorrecta'; err.style.display='block';
-    try{ inp.select(); }catch(e){}
   }else{
-    err.textContent='Sin conexión con el servidor. Revisa tu internet.'; err.style.display='block';
+    err.textContent='Email o contraseña incorrectos'; err.style.display='block';
+    try{ inp2.select(); }catch(e){}
   }
 }
 
@@ -277,22 +291,25 @@ function cerrarSplash(){
   splashDismissTimer=setTimeout(()=>{ splash.style.display='none'; }, 500);
 }
 
-// Cierra sesión (p.ej. si el servidor rechaza la contraseña) y muestra el login
-function cerrarSesion(){
+// Cierra sesión (limpia sessionStorage y muestra el login)
+function cerrarSesionAntiga(){
   localStorage.removeItem(PW_KEY);
   irAlHome();
 }
 
 // Cierre de sesión manual (botón "Salir") con confirmación
 function cerrarSesionManual(){
-  if(!confirm('¿Cerrar sesión?\n\nTendrás que ingresar la contraseña del equipo de nuevo para volver a entrar.')) return;
-  cerrarSesion();
+  if(!confirm('¿Cerrar sesión?\n\nTendrás que ingresar tu email y contraseña de nuevo para volver a entrar.')) return;
+  sessionStorage.removeItem('token');
+  sessionStorage.removeItem('user');
+  clearTimeout(inactivityTimer);
+  irAlHome();
   toast('Sesión cerrada', true);
 }
 
 // ── CAMBIAR CONTRASEÑA (desde la app) ─────────────────────────────
 function abrirModalPassword(){
-  if(!getAppPassword()){ irAlHome(); return; } // hay que estar dentro
+  if(!obtenerToken()){ irAlHome(); return; } // hay que estar dentro
   document.getElementById('pw-nueva').value='';
   document.getElementById('pw-nueva2').value='';
   document.getElementById('pw-modal-msg').style.display='none';
@@ -1732,20 +1749,26 @@ function fmtFolio(n){return FOLIO_PREFIX+String(n).padStart(3,'0');}
 
 class ApiError extends Error{ constructor(code,msg){ super(msg); this.code=code; } }
 
-function getAppPassword(){ return localStorage.getItem(PW_KEY)||''; }
-function setAppPassword(pw){ localStorage.setItem(PW_KEY, pw); }
+function obtenerToken(){ return sessionStorage.getItem('token')||''; }
+function obtenerUsuarioActual(){ try{ return JSON.parse(sessionStorage.getItem('user')||'{}'); }catch(e){ return {}; } }
+function guardarSesion(token, user){ sessionStorage.setItem('token', token); sessionStorage.setItem('user', JSON.stringify(user)); }
+function getAppPassword(){ return localStorage.getItem(PW_KEY)||''; } // DEPRECATED: usado solo por compatibilidad
 
-// La sesión ya garantiza la contraseña (login al entrar). Si por algo no hay,
-// se muestra el login de nuevo. Nunca se pide en medio de una acción.
+// Valida que haya sesión (token válido). Si no, muestra login.
 async function asegurarPassword(){
-  if(getAppPassword()) return true;
+  if(obtenerToken()) return true;
   irAlHome();
   return false;
 }
 
 async function apiFetch(path, opts){
   opts=opts||{};
-  const headers=Object.assign({'X-App-Password':getAppPassword()}, opts.headers||{});
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  const headers=Object.assign({
+    'X-Auth-Token':token||'',
+    'X-User-Email':(user&&user.email)||''
+  }, opts.headers||{});
   if(opts.body) headers['Content-Type']='application/json';
   let res;
   try{
@@ -1753,7 +1776,7 @@ async function apiFetch(path, opts){
   }catch(e){
     throw new ApiError('NET','Sin conexión con el servidor. Revisa tu internet.');
   }
-  if(res.status===401) throw new ApiError('AUTH','Contraseña incorrecta o no configurada');
+  if(res.status===401) throw new ApiError('AUTH','Sesión no válida o expirada');
   if(!res.ok){ let t=''; try{t=await res.text();}catch(e){} throw new ApiError('HTTP','Error '+res.status+' '+t); }
   return res.status===204 ? null : res.json();
 }
@@ -1768,11 +1791,11 @@ function manejarErrorApi(e, accion){
 }
 
 // Muestra en el campo el folio tentativo que dará el servidor a la próxima
-// cotización nueva. Silencioso si no hay contraseña o red (no molesta al cargar).
+// cotización nueva. Silencioso si no hay token o red (no molesta al cargar).
 async function asignarFolioPreview(){
   const el=document.getElementById('cli-f');
   if(!el) return;
-  if(!getAppPassword()){ el.value=''; el.placeholder='(se asigna al guardar)'; return; }
+  if(!obtenerToken()){ el.value=''; el.placeholder='(se asigna al guardar)'; return; }
   try{
     const r=await apiFetch('/api/next-folio');
     if(!cotizacionActualKey) el.value=r.folio;
@@ -1937,7 +1960,7 @@ async function abrirListaCotizaciones(filtro){
     let resp;
     try{ resp=await apiFetch('/api/cotizaciones'); }
     catch(e){
-      if(e && e.code==='AUTH') localStorage.removeItem(PW_KEY);
+      if(e && e.code==='AUTH') { sessionStorage.removeItem('token'); sessionStorage.removeItem('user'); }
       cont.innerHTML='<div class="nm" style="color:var(--red)">'+((e&&e.message)||e)+' <button class="tb" onclick="abrirListaCotizaciones()">Reintentar</button></div>';
       return;
     }
