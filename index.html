@@ -645,6 +645,13 @@ function irAlHome(){
           <option value="make">Fabricar en obra</option>
         </select>
       </div>
+      <div class="f" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:.7rem .9rem">
+        <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;margin-bottom:0;text-transform:none">
+          <input type="checkbox" id="chk-comparar" onchange="actualizarVisibilidadCostos();calc()" style="width:auto">
+          <span style="color:var(--text)">Comparar opciones (madera · prefabricados · fabricados)</span>
+        </label>
+        <div style="font-size:11px;color:var(--muted);font-family:var(--fm);margin-top:5px">Actívalo para ver y capturar TODOS los materiales y comparar costos. Apagado: solo se muestra lo de tu selección actual.</div>
+      </div>
       <div class="ni" id="nota-esq">Postes esquineros siempre de <strong style="color:var(--accent)" id="nota-esq-dim">concreto 15×15 cm</strong> con zapata.</div>
     </div>
   </div>
@@ -702,16 +709,20 @@ function irAlHome(){
         <div style="font-size:12px;color:var(--muted);font-family:var(--fm);margin-bottom:.4rem">Medidas de postes (editable según proveedor)</div>
         <div class="nm" style="margin-bottom:.75rem">Cambia estas medidas si tu proveedor maneja otras secciones o largos — todos los cálculos (fundición, volumen, etiquetas) se actualizan automáticamente.</div>
 
-        <div style="font-size:11px;color:var(--accent);font-family:var(--fm);margin:.6rem 0 .4rem">Poste de línea — concreto</div>
-        <div class="row2">
-          <div class="f"><label>Sección (cm × cm)</label><input type="number" id="dim-lc-w" value="12" min="5" step="0.5" oninput="onDimChange()"></div>
-          <div class="f"><label>Largo (m)</label><input type="number" id="dim-lc-h" value="2.0" min="1" step="0.1" oninput="onDimChange()"></div>
+        <div id="dim-grp-c">
+          <div style="font-size:11px;color:var(--accent);font-family:var(--fm);margin:.6rem 0 .4rem">Poste de línea — concreto</div>
+          <div class="row2">
+            <div class="f"><label>Sección (cm × cm)</label><input type="number" id="dim-lc-w" value="12" min="5" step="0.5" oninput="onDimChange()"></div>
+            <div class="f"><label>Largo (m)</label><input type="number" id="dim-lc-h" value="2.0" min="1" step="0.1" oninput="onDimChange()"></div>
+          </div>
         </div>
 
-        <div style="font-size:11px;color:var(--accent);font-family:var(--fm);margin:.9rem 0 .4rem">Poste de línea — madera</div>
-        <div class="row2">
-          <div class="f"><label>Diámetro (cm)</label><input type="number" id="dim-lw-d" value="10" min="5" step="0.5" oninput="onDimChange()"></div>
-          <div class="f"><label>Largo (m)</label><input type="number" id="dim-lw-h" value="2.0" min="1" step="0.1" oninput="onDimChange()"></div>
+        <div id="dim-grp-w">
+          <div style="font-size:11px;color:var(--accent);font-family:var(--fm);margin:.9rem 0 .4rem">Poste de línea — madera</div>
+          <div class="row2">
+            <div class="f"><label>Diámetro (cm)</label><input type="number" id="dim-lw-d" value="10" min="5" step="0.5" oninput="onDimChange()"></div>
+            <div class="f"><label>Largo (m)</label><input type="number" id="dim-lw-h" value="2.0" min="1" step="0.1" oninput="onDimChange()"></div>
+          </div>
         </div>
 
         <div style="font-size:11px;color:var(--accent);font-family:var(--fm);margin:.9rem 0 .4rem">Poste esquinero — concreto</div>
@@ -723,8 +734,8 @@ function irAlHome(){
 
       <div id="b-buy">
         <div style="font-size:12px;color:var(--muted);font-family:var(--fm);margin-bottom:.75rem">Precio por pieza</div>
-        <div class="crow"><div><div class="cn" id="lbl-lc">Poste línea — concreto 12×12×2m</div><div class="cs">precio/pieza</div></div><div class="ip"><span>$</span><input type="number" id="p-lc" class="pend" placeholder="—" oninput="calc()"></div></div>
-        <div class="crow"><div><div class="cn" id="lbl-lw">Poste línea — madera Ø10cm×2m</div><div class="cs">precio/pieza</div></div><div class="ip"><span>$</span><input type="number" id="p-lw" class="pend" placeholder="—" oninput="calc()"></div></div>
+        <div class="crow" id="row-p-lc"><div><div class="cn" id="lbl-lc">Poste línea — concreto 12×12×2m</div><div class="cs">precio/pieza</div></div><div class="ip"><span>$</span><input type="number" id="p-lc" class="pend" placeholder="—" oninput="calc()"></div></div>
+        <div class="crow" id="row-p-lw"><div><div class="cn" id="lbl-lw">Poste línea — madera Ø10cm×2m</div><div class="cs">precio/pieza</div></div><div class="ip"><span>$</span><input type="number" id="p-lw" class="pend" placeholder="—" oninput="calc()"></div></div>
         <div class="crow"><div><div class="cn" id="lbl-e1">Poste esquinero — concreto 15×15×2m</div><div class="cs">precio/pieza</div></div><div class="ip"><span>$</span><input type="number" id="p-e1" class="pend" placeholder="—" oninput="calc()"></div></div>
       </div>
       <div id="b-make" style="display:none">
@@ -753,7 +764,7 @@ function irAlHome(){
             <div class="ip" style="width:76px"><span style="left:6px;font-size:11px">m</span><input type="number" id="m-pw" value="200" oninput="calc()" style="width:76px;padding-left:22px"></div>
           </div>
         </div>
-        <div class="crow"><div><div class="cn">Grampas / grapas</div><div class="cs">por kg</div></div><div class="ip"><span>$</span><input type="number" id="p-gp" class="pend" placeholder="—" oninput="calc()"></div></div>
+        <div class="crow" id="row-grampas"><div><div class="cn">Grampas / grapas</div><div class="cs">por kg</div></div><div class="ip"><span>$</span><input type="number" id="p-gp" class="pend" placeholder="—" oninput="calc()"></div></div>
         <div class="crow"><div><div class="cn">Concreto fundición postes</div><div class="cs">calculado · Ø35cm×50cm, f'c=150kg/cm², 5.2 sacos/m³</div></div><div style="font-family:var(--fm);font-size:13px;color:var(--green);text-align:right" id="p-fu-disp">$0</div></div>
         <div style="padding:.4rem 0 .75rem;border-bottom:1px solid var(--border)">
           <button onclick="toggleFundInfo()" id="btn-fund-info" style="background:none;border:none;color:var(--accent);font-size:11px;font-family:var(--fm);cursor:pointer;padding:0;text-decoration:underline">Ver más ▾</button>
@@ -1537,9 +1548,30 @@ function updPortSel(){
 }
 
 // ── TOGGLES ───────────────────────────────────────────────────────
-function setMat(m,btn){mat=m; document.querySelectorAll('#tg-m .tbn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); calc();}
+function setMat(m,btn){mat=m; document.querySelectorAll('#tg-m .tbn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); actualizarVisibilidadCostos(); calc();}
 function setPo(v,btn){conPorton=v; document.querySelectorAll('#tg-po .tbn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); document.getElementById('po-d').style.display=v?'block':'none'; calc(); capturarSnapshotLote();}
-function toggleModo(){const m=document.getElementById('modo-p').value; document.getElementById('b-buy').style.display=m==='buy'?'block':'none'; document.getElementById('b-make').style.display=m==='make'?'block':'none'; calc();}
+function toggleModo(){ actualizarVisibilidadCostos(); calc(); }
+
+// Muestra solo los materiales relevantes a la selección (material + comprar/fabricar).
+// Con "Comparar opciones" activo, muestra TODO para poder comparar.
+function actualizarVisibilidadCostos(){
+  const comparar = !!(document.getElementById('chk-comparar') && document.getElementById('chk-comparar').checked);
+  const mp = document.getElementById('modo-p').value; // buy | make
+  const esMadera = (typeof mat!=='undefined') && mat==='w';
+  const show=(id,vis)=>{ const el=document.getElementById(id); if(el) el.style.display = vis ? '' : 'none'; };
+  // Bloques comprar / fabricar
+  const bbuy=document.getElementById('b-buy'), bmake=document.getElementById('b-make');
+  if(bbuy)  bbuy.style.display  = (comparar||mp==='buy')  ? 'block' : 'none';
+  if(bmake) bmake.style.display = (comparar||mp==='make') ? 'block' : 'none';
+  // Medidas de postes: solo el material elegido (el esquinero siempre se muestra)
+  show('dim-grp-c', comparar || !esMadera);
+  show('dim-grp-w', comparar ||  esMadera);
+  // Precio por pieza: solo la línea del material elegido
+  show('row-p-lc', comparar || !esMadera);
+  show('row-p-lw', comparar ||  esMadera);
+  // Grampas: solo aplican a postes de madera fabricados en obra
+  show('row-grampas', comparar || (esMadera && mp==='make'));
+}
 function toggleSep(){document.getElementById('sep-c').style.display=document.getElementById('sep').value==='custom'?'block':'none';}
 function setMargenRapido(pct){document.getElementById('margen').value=pct; calc();}
 
@@ -4122,6 +4154,7 @@ async function cargarRecibos(){
 buildLados();
 updPortSel();
 onDimChange();
+actualizarVisibilidadCostos();   // oculta materiales no relevantes según la selección inicial
 cargarConfigEmpresaInicial();
 refrescarSelectorProveedores();
 asignarFolioPreview();      // muestra el folio que tomará la próxima cotización
