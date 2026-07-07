@@ -193,6 +193,25 @@ export default {
       return json({ ok: true, service: 'lindero-coti-api-v2', timestamp: new Date().toISOString() }, 200, origin);
     }
 
+    // ── SETUP: Crear admin si no existe (temporal, solo primera vez) ────
+    if (path === '/api/setup/init-admin') {
+      const existingAdmin = await env.COTIZACIONES.get(USERS_PREFIX + ADMIN_EMAIL);
+      if (existingAdmin) {
+        return json({ message: 'Admin ya existe' }, 200, origin);
+      }
+
+      const adminUser = {
+        email: ADMIN_EMAIL,
+        rol: 'ADMIN',
+        permissions: 255,
+        creadoEn: new Date().toISOString(),
+        creadoPor: 'system-init'
+      };
+
+      await env.COTIZACIONES.put(USERS_PREFIX + ADMIN_EMAIL, JSON.stringify(adminUser));
+      return json({ message: 'Admin creado exitosamente', admin: adminUser }, 201, origin);
+    }
+
     // ── LOGIN SIN AUTENTICACIÓN (para obtener token) ────────────────────
     if (request.method === 'POST' && path === '/api/auth/login') {
       try {

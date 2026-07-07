@@ -3053,7 +3053,7 @@ function cerrarSesion(){
 function resetearInactivity(){
   clearTimeout(inactivityTimer);
   inactivityTimer=setTimeout(()=>{
-    if(userToken) cerrarSesion();
+    if(obtenerToken()) cerrarSesion();
   }, 30*60*1000); // 30 min
 }
 
