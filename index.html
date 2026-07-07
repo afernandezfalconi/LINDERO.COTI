@@ -1030,6 +1030,7 @@ function irAlHome(){
   <div class="ph-notas">
     <p>• El portón metálico se cotiza por separado con el herrero. Esta cotización solo reserva el vano.</p>
     <p>• Esta cotización tiene una vigencia de <span id="ph-vigencia">15 días naturales</span> a partir de la fecha de emisión.</p>
+    <p>• <strong>IMPORTANTE:</strong> Los costos de materiales de construcción están sujetos a fluctuaciones del mercado. Cambios significativos en los precios de materiales pueden afectar esta cotización independientemente de su vigencia. Se recomienda confirmar precios con proveedores antes de ejecutar el proyecto.</p>
     <p>• Los precios están sujetos a verificación física del terreno y disponibilidad de materiales.</p>
   </div>
 
@@ -1630,8 +1631,8 @@ function calc(){
   }
   const pG=fv('p-gp');
   const cFundTotal = (cFundLinea!==null && cFundEsq!==null) ? (cFundLinea + cFundEsq) : null;
-  // Grampas: solo para postes de madera. Postes de concreto prefabricados ya vienen con grampas incluidas
-  const cGrampas = mat==='w' && pG!==null ? pG*Math.ceil(per*0.05) : 0;
+  // Grampas: solo para postes de madera fabricados en obra. Postes prefabricados (buy) ya vienen con grampas incluidas
+  const cGrampas = mat==='w' && mp==='make' && pG!==null ? pG*Math.ceil(per*0.05) : 0;
   cO=(pG!==null||cFundTotal!==null)?((cGrampas)+(cFundTotal||0)):null;
   document.getElementById('p-fu-disp').textContent = $m(cFundTotal);
 
@@ -2442,8 +2443,8 @@ function calcularEscenario(matX, modoX){
     cFundTotal=(pl*volNetoLinea*5.2*costoSaco)+(pe*volNetoEsq*5.2*costoSaco);
   }
   const pG=fv('p-gp');
-  // Grampas: solo para postes de madera. Postes de concreto prefabricados ya vienen con grampas incluidas
-  const cGrampas = matX==='w' && pG!==null ? pG*Math.ceil(per*0.05) : 0;
+  // Grampas: solo para postes de madera fabricados en obra. Postes prefabricados (buy) ya vienen con grampas incluidas
+  const cGrampas = matX==='w' && modoX==='make' && pG!==null ? pG*Math.ceil(per*0.05) : 0;
   const cO=(pG!==null||cFundTotal!==null)?((cGrampas)+(cFundTotal||0)):null;
 
   const parts=[cL,cE,cA,cMO,cO];
