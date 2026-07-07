@@ -152,9 +152,24 @@ async function createAuditLog(env, user, action, resource, details = {}) {
 }
 
 // ── PROVEEDORES Y HISTORIAL DE PRECIOS ────────────────────────────────
+// Normaliza proveedores antiguos (una categoría/precio) al modelo multi-material
+function normalizeProvider(p) {
+  if (!p) return p;
+  if (!Array.isArray(p.materiales)) {
+    p.materiales = [{
+      tipo: p.categoria || 'otros',
+      precio: p.precioActual || 0,
+      marca: p.marca || '',
+      metrosPorRollo: p.metrosPorRollo != null ? p.metrosPorRollo : null,
+      kgPorRollo: p.kgPorRollo != null ? p.kgPorRollo : null,
+    }];
+  }
+  return p;
+}
+
 async function getProviderById(env, providerId) {
   const data = await env.COTIZACIONES.get(PROVIDERS_PREFIX + providerId);
-  return data ? JSON.parse(data) : null;
+  return data ? normalizeProvider(JSON.parse(data)) : null;
 }
 
 async function getAllProviders(env) {
@@ -164,7 +179,7 @@ async function getAllProviders(env) {
     const res = await env.COTIZACIONES.list({ prefix: PROVIDERS_PREFIX, cursor, limit: 100 });
     for (const k of res.keys) {
       const data = await env.COTIZACIONES.get(k.name);
-      if (data) providers.push(JSON.parse(data));
+      if (data) providers.push(normalizeProvider(JSON.parse(data)));
     }
     cursor = res.list_complete ? null : res.cursor;
   } while (cursor);
@@ -175,21 +190,23 @@ async function createProvider(env, providerData) {
   const seq = parseInt((await env.COTIZACIONES.get(PROVIDERS_SEQ_KEY)) || '0') + 1;
   await env.COTIZACIONES.put(PROVIDERS_SEQ_KEY, String(seq));
 
+  // Modelo multi-material: array de {tipo, precio, marca?, metrosPorRollo?, kgPorRollo?}
+  const materiales = Array.isArray(providerData.materiales) ? providerData.materiales : [];
+  const precioPrimario = materiales.length ? (materiales[0].precio || 0) : (providerData.precioActual || 0);
+
   const provider = {
     id: String(seq),
     nombre: providerData.nombre,
-    categoria: providerData.categoria,
+    categoria: materiales.length > 1 ? 'varios' : (materiales[0] ? materiales[0].tipo : (providerData.categoria || 'otros')),
     contacto: providerData.contacto || {},
     notas: providerData.notas || '',
-    precioActual: providerData.precioActual || 0,
-    marca: providerData.marca || '',
-    kgPorRollo: providerData.kgPorRollo != null ? providerData.kgPorRollo : null,
-    metrosPorRollo: providerData.metrosPorRollo != null ? providerData.metrosPorRollo : null,
+    materiales,
+    precioActual: precioPrimario,
     ultimaActualizacion: new Date().toISOString(),
     historialPrecios: [
       {
         fecha: new Date().toISOString(),
-        precio: providerData.precioActual || 0,
+        precio: precioPrimario,
         motivo: 'Precio inicial'
       }
     ]

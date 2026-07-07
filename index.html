@@ -2248,7 +2248,7 @@ async function refrescarSelectorProveedores(seleccionar){
         (data.items||[]).forEach(p=>{
           const opt=document.createElement('option');
           opt.value=p.id;
-          opt.textContent=`${p.nombre} ($${p.precioActual}) - ${p.categoria}`;
+          opt.textContent=`${p.nombre} — ${(p.materiales||[]).length} material(es)`;
           opt.dataset.providerId=p.id;
           opt.dataset.providerData=JSON.stringify(p);
           sel.appendChild(opt);
@@ -2313,19 +2313,13 @@ async function cargarProveedor(){
       const option=sel.querySelector(`option[value="${valor}"]`);
       if(option.dataset.providerData){
         const provider=JSON.parse(option.dataset.providerData);
-        // Mapear precios del proveedor a campos según la categoría
+        // Aplicar el precio de cada material del proveedor a su campo del cotizador
         datos={};
-        if(provider.categoria==='alambre'){
-          // Alambre: precio por rollo + metros por rollo (varían por marca)
-          if(provider.precioActual) datos['p-pw']=provider.precioActual;
-          if(provider.metrosPorRollo) datos['m-pw']=provider.metrosPorRollo;
-        } else if(provider.precioActual){
-          // Postes / otros: precio actual a los postes
-          datos['p-lc']=provider.precioActual;
-          datos['p-lw']=provider.precioActual;
-          datos['p-e1']=provider.precioActual;
-          datos['p-e2']=provider.precioActual;
-        }
+        (provider.materiales||[]).forEach(m=>{
+          const cat=CATALOGO_MATERIALES.find(c=>c.tipo===m.tipo);
+          if(cat && cat.costId && m.precio) datos[cat.costId]=m.precio;
+          if(m.tipo==='alambre' && m.metrosPorRollo) datos['m-pw']=m.metrosPorRollo;
+        });
       }
     }
 
@@ -3448,6 +3442,21 @@ async function filtrarAuditoria(){
 // ── FASE 4: GESTIÓN DE PROVEEDORES ────────────────────────────────
 let proveedoresGlobal = [];
 
+// Catálogo de materiales (fuente única). costId = campo de "Costos de materiales" del cotizador.
+const CATALOGO_MATERIALES=[
+  {tipo:'poste-linea-concreto', label:'Poste de línea — concreto', costId:'p-lc'},
+  {tipo:'poste-linea-madera', label:'Poste de línea — madera', costId:'p-lw'},
+  {tipo:'poste-esquinero-concreto', label:'Poste esquinero — concreto', costId:'p-e1'},
+  {tipo:'alambre', label:'Alambre de púa', costId:'p-pw', alambre:true},
+  {tipo:'cemento', label:'Cemento', costId:'p-ce'},
+  {tipo:'arena', label:'Arena', costId:'p-ar'},
+  {tipo:'grava', label:'Grava / piedrín', costId:'p-gr'},
+  {tipo:'varilla', label:'Varilla 3/8"', costId:'p-va'},
+  {tipo:'alambron', label:'Alambrón 1/4"', costId:'p-al'},
+  {tipo:'grampas', label:'Grampas / grapas', costId:'p-gp'},
+];
+function labelMaterial(tipo){ const m=CATALOGO_MATERIALES.find(c=>c.tipo===tipo); return m?m.label:tipo; }
+
 async function abrirProveedores(){
   if(obtenerUsuarioActual().email!=='afernandezfalconi@gmail.com'){
     alert('Solo admin');
@@ -3473,27 +3482,15 @@ function crearPanelProveedores(){
       <h2 style="margin-top:0">🏭 Gestión de Proveedores</h2>
 
       <div style="margin-bottom:2rem;padding:1rem;background:var(--bg3);border-radius:6px">
-        <h3>➕ Agregar Proveedor</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
-          <input id="prov-nombre" type="text" placeholder="Nombre" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-          <select id="prov-categoria" onchange="toggleCamposAlambre()" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-            <option value="">-- Categoría --</option>
-            <option value="postes">Postes</option>
-            <option value="alambre">Alambre</option>
-            <option value="herramientas">Herramientas</option>
-            <option value="otros">Otros</option>
-          </select>
+        <h3 style="margin-top:0">➕ Agregar Proveedor</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+          <input id="prov-nombre" type="text" placeholder="Nombre del proveedor" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
           <input id="prov-telefono" type="text" placeholder="Teléfono" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
           <input id="prov-email" type="email" placeholder="Email" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-          <input id="prov-precio" type="number" placeholder="Precio inicial (por rollo si es alambre)" step="0.01" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
           <input id="prov-notas" type="text" placeholder="Notas" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
         </div>
-        <div id="prov-alambre-fields" style="display:none;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:1rem">
-          <input id="prov-marca" type="text" placeholder="Marca del alambre" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-          <input id="prov-metros" type="number" step="0.01" placeholder="Metros por rollo" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-          <input id="prov-kg" type="number" step="0.01" placeholder="Kg por rollo" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-        </div>
-        <div id="prov-alambre-hint" style="display:none;font-size:11px;color:var(--muted);font-family:var(--fm);margin-top:.5rem">Al cargar este proveedor en una cotización se aplican automáticamente el precio y los metros por rollo (varían por marca).</div>
+        <div style="font-size:12px;color:var(--muted);font-family:var(--fm);margin-bottom:.6rem">Materiales que vende — pon precio solo a los que aplica (puede vender varios):</div>
+        <div id="prov-materiales-list"></div>
         <button class="btnp ok" onclick="agregarProveedor()" style="margin-top:1rem;width:100%">Crear Proveedor</button>
       </div>
 
@@ -3506,6 +3503,24 @@ function crearPanelProveedores(){
     </div>
   </div>`;
   document.body.insertAdjacentHTML('beforeend', modalHTML);
+  renderMaterialesProveedorForm();
+}
+
+// Dibuja una fila por material del catálogo (precio opcional; alambre con marca/metros/kg)
+function renderMaterialesProveedorForm(){
+  const cont=document.getElementById('prov-materiales-list');
+  if(!cont) return;
+  cont.innerHTML=CATALOGO_MATERIALES.map(m=>{
+    const extra = m.alambre ? `
+      <input type="text" id="pmat-${m.tipo}-marca" placeholder="Marca" style="width:110px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">
+      <input type="number" step="0.01" id="pmat-${m.tipo}-metros" placeholder="m/rollo" style="width:88px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">
+      <input type="number" step="0.01" id="pmat-${m.tipo}-kg" placeholder="kg/rollo" style="width:88px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">` : '';
+    return `<div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.4rem;flex-wrap:wrap">
+      <label style="flex:1;min-width:180px;font-size:13px;color:var(--text)">${m.label}</label>
+      <div class="ip" style="width:120px"><span>$</span><input type="number" step="0.01" id="pmat-${m.tipo}" placeholder="—" style="width:120px"></div>
+      ${extra}
+    </div>`;
+  }).join('');
 }
 
 async function cargarProveedores(){
@@ -3533,13 +3548,16 @@ async function cargarProveedores(){
       const card=`
       <div style="border:1px solid var(--border);border-radius:6px;padding:1.5rem;background:var(--bg3)">
         <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:1rem">
-          <div>
+          <div style="flex:1">
             <h4 style="margin:0;color:var(--accent1)">${p.nombre}</h4>
-            <p style="margin:0.5rem 0 0 0;font-size:12px;color:var(--muted)">Categoría: <strong>${p.categoria}</strong></p>
-            ${p.categoria==='alambre' && (p.marca||p.metrosPorRollo||p.kgPorRollo) ? `<p style="margin:0.3rem 0 0 0;font-size:12px;color:var(--accent)">${p.marca?'Marca: <strong>'+p.marca+'</strong>':''}${p.metrosPorRollo?' · '+p.metrosPorRollo+' m/rollo':''}${p.kgPorRollo?' · '+p.kgPorRollo+' kg/rollo':''}</p>` : ''}
+            <div style="margin:0.5rem 0 0 0;font-size:12px;color:var(--muted)">
+              ${(p.materiales||[]).map(m=>{
+                const extra=m.tipo==='alambre'?`${m.marca?' · '+m.marca:''}${m.metrosPorRollo?' · '+m.metrosPorRollo+' m/rollo':''}${m.kgPorRollo?' · '+m.kgPorRollo+' kg':''}`:'';
+                return `<div>• ${labelMaterial(m.tipo)}: <strong style="color:var(--accent)">$${m.precio}</strong>${extra}</div>`;
+              }).join('')||'<em>Sin materiales</em>'}
+            </div>
           </div>
-          <div style="text-align:right">
-            <div style="font-size:18px;font-weight:bold;color:var(--accent2)">$${p.precioActual}</div>
+          <div style="text-align:right;white-space:nowrap">
             <div style="font-size:11px;color:var(--muted)">Actualizado: ${new Date(p.ultimaActualizacion).toLocaleDateString('es-MX')}</div>
           </div>
         </div>
@@ -3577,31 +3595,31 @@ async function cargarProveedores(){
   }
 }
 
-// Muestra los campos específicos de alambre (marca, metros/kg por rollo) solo si la categoría es "alambre"
-function toggleCamposAlambre(){
-  const cat=document.getElementById('prov-categoria').value;
-  const box=document.getElementById('prov-alambre-fields');
-  const hint=document.getElementById('prov-alambre-hint');
-  const mostrar = cat==='alambre';
-  if(box) box.style.display = mostrar ? 'grid' : 'none';
-  if(hint) hint.style.display = mostrar ? 'block' : 'none';
-}
-
 async function agregarProveedor(){
   const nombre=document.getElementById('prov-nombre').value.trim();
-  const categoria=document.getElementById('prov-categoria').value;
   const telefono=document.getElementById('prov-telefono').value.trim();
   const email=document.getElementById('prov-email').value.trim();
-  const precio=parseFloat(document.getElementById('prov-precio').value);
   const notas=document.getElementById('prov-notas').value.trim();
-  const marca=(document.getElementById('prov-marca')?.value||'').trim();
-  const kg=parseFloat(document.getElementById('prov-kg')?.value);
-  const metros=parseFloat(document.getElementById('prov-metros')?.value);
 
-  if(!nombre||!categoria||!precio){
-    alert('Completa nombre, categoría y precio');
-    return;
-  }
+  if(!nombre){ alert('Ingresa el nombre del proveedor'); return; }
+
+  // Recopilar los materiales con precio (un proveedor puede vender varios)
+  const materiales=[];
+  CATALOGO_MATERIALES.forEach(m=>{
+    const precio=parseFloat((document.getElementById('pmat-'+m.tipo)||{}).value);
+    if(!isNaN(precio) && precio>0){
+      const item={tipo:m.tipo, precio};
+      if(m.alambre){
+        item.marca=((document.getElementById('pmat-'+m.tipo+'-marca')||{}).value||'').trim();
+        const met=parseFloat((document.getElementById('pmat-'+m.tipo+'-metros')||{}).value);
+        const kg=parseFloat((document.getElementById('pmat-'+m.tipo+'-kg')||{}).value);
+        item.metrosPorRollo=isNaN(met)?null:met;
+        item.kgPorRollo=isNaN(kg)?null:kg;
+      }
+      materiales.push(item);
+    }
+  });
+  if(materiales.length===0){ alert('Ponle precio a por lo menos un material'); return; }
 
   const token=obtenerToken();
   const user=obtenerUsuarioActual();
@@ -3609,23 +3627,18 @@ async function agregarProveedor(){
     const resp=await fetch(API_BASE+'/api/providers', {
       method:'POST',
       headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
-      body:JSON.stringify({nombre,categoria,precioActual:precio,notas,contacto:{telefono,email},marca,kgPorRollo:isNaN(kg)?null:kg,metrosPorRollo:isNaN(metros)?null:metros})
+      body:JSON.stringify({nombre,notas,contacto:{telefono,email},materiales})
     });
     if(!resp.ok) throw new Error('Error al crear');
 
     document.getElementById('prov-nombre').value='';
-    document.getElementById('prov-categoria').value='';
     document.getElementById('prov-telefono').value='';
     document.getElementById('prov-email').value='';
-    document.getElementById('prov-precio').value='';
     document.getElementById('prov-notas').value='';
-    if(document.getElementById('prov-marca')) document.getElementById('prov-marca').value='';
-    if(document.getElementById('prov-kg')) document.getElementById('prov-kg').value='';
-    if(document.getElementById('prov-metros')) document.getElementById('prov-metros').value='';
-    toggleCamposAlambre();
+    renderMaterialesProveedorForm(); // limpia los precios de materiales
 
     await cargarProveedores();
-    alert('Proveedor creado');
+    toast('✓ Proveedor creado', true);
   }catch(e){
     alert('Error: '+e.message);
   }
