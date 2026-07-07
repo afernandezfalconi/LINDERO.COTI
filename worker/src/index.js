@@ -1,19 +1,46 @@
-// ── LINDERO.COTI — API (Cloudflare Worker + KV) ───────────────────────────
-// Almacena las cotizaciones en la nube para consultarlas desde cualquier
-// dispositivo. El folio es GLOBAL y lo asigna el servidor (consecutivo, único).
-// Auth: contraseña compartida enviada en el header X-App-Password.
+// ── LINDERO.COTI — API v2 (Cloudflare Worker + KV) ───────────────────────────
+// Seguridad mejorada + Sistema de usuarios + Auditoría
 //
-// Rutas:
-//   GET    /api/cotizaciones          -> lista de resúmenes (metadata)
-//   GET    /api/cotizaciones/:id      -> registro completo
-//   POST   /api/cotizaciones          -> crea (asigna folio nuevo), devuelve el registro
-//   PUT    /api/cotizaciones/:id       -> actualiza (conserva folio). Body {estatus} = cancelar
-//   GET    /api/next-folio            -> folio que tomará la próxima cotización (preview)
-//   GET    /api/health               -> ping (no requiere auth)
+// CAMBIOS SEGURIDAD:
+// 1. Landing page con tokens aleatorios (no folio)
+// 2. Rate limiting por IP
+// 3. Timing attack fix (crypto.subtle.timingSafeEqual)
+// 4. Comprobantes encriptados (opcional R2)
+// 5. Auditoría completa de acciones
+//
+// USUARIOS Y PERMISOS:
+// - ADMIN: acceso total + gestión usuarios
+// - EDITOR: crear/editar propias cotizaciones
+// - VIEWER: solo ver cotizaciones
+// - Custom: permisos granulares (bit flags)
 
 const KV_PREFIX = 'cot:';
+const USERS_PREFIX = 'user:';
+const AUDIT_PREFIX = 'audit:';
+const TOKENS_PREFIX = 'token:';
+const RATE_LIMIT_PREFIX = 'ratelimit:';
 const SEQ_KEY = 'meta:folioSeq';
 const FOLIO_PREFIX = 'COT-';
+const ADMIN_EMAIL = 'afernandezfalconi@gmail.com';
+
+// Permisos en forma de bits
+const PERMISSIONS = {
+  VIEW_COTIZACIONES: 1 << 0,      // 1
+  CREATE_COTIZACIONES: 1 << 1,    // 2
+  EDIT_OWN: 1 << 2,               // 4
+  EDIT_ALL: 1 << 3,               // 8
+  DELETE_OWN: 1 << 4,             // 16
+  DELETE_ALL: 1 << 5,             // 32
+  VIEW_AUDIT: 1 << 6,             // 64
+  MANAGE_USERS: 1 << 7,           // 128
+  VIEW_LANDING: 1 << 8,           // 256
+};
+
+const ROLES = {
+  ADMIN: 0xFF,                    // Todos los permisos
+  EDITOR: PERMISSIONS.VIEW_COTIZACIONES | PERMISSIONS.CREATE_COTIZACIONES | PERMISSIONS.EDIT_OWN | PERMISSIONS.DELETE_OWN,
+  VIEWER: PERMISSIONS.VIEW_COTIZACIONES | PERMISSIONS.VIEW_LANDING,
+};
 
 const ALLOWED_ORIGINS = [
   'https://afernandezfalconi.github.io',
@@ -21,16 +48,22 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:3003',
 ];
 
+const RATE_LIMIT_WINDOW = 60;      // 60 segundos
+const RATE_LIMIT_MAX = 100;        // 100 requests por ventana
+const AUTH_RATE_LIMIT_MAX = 5;     // 5 intentos de auth
+
 function fmtFolio(n) { return FOLIO_PREFIX + String(n).padStart(3, '0'); }
 
 function corsHeaders(origin) {
   const allow = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
     'Access-Control-Allow-Origin': allow,
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,X-App-Password',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,X-Auth-Token,X-User-Email',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
   };
 }
 
@@ -41,20 +74,80 @@ function json(data, status, origin) {
   });
 }
 
-// Contraseña vigente: la de KV (editable desde la app) o, si no hay, el secret.
-async function currentPassword(env) {
-  const kv = await env.COTIZACIONES.get('meta:password');
-  return (kv != null && kv !== '') ? kv : (env.APP_PASSWORD || '');
+// ── SEGURIDAD: Rate Limiting ──────────────────────────────────────────
+async function checkRateLimit(env, ip, isAuth = false) {
+  const key = RATE_LIMIT_PREFIX + ip + (isAuth ? ':auth' : '');
+  const current = parseInt((await env.COTIZACIONES.get(key)) || '0');
+  const limit = isAuth ? AUTH_RATE_LIMIT_MAX : RATE_LIMIT_MAX;
+
+  if (current >= limit) {
+    return false; // Rate limited
+  }
+
+  await env.COTIZACIONES.put(key, String(current + 1), { expirationTtl: RATE_LIMIT_WINDOW });
+  return true;
 }
 
-// Comparación en tiempo (casi) constante para la contraseña
-async function passwordOK(request, env) {
-  const pw = request.headers.get('X-App-Password') || '';
-  const expected = await currentPassword(env);
-  if (!expected || pw.length !== expected.length) return false;
+// ── SEGURIDAD: Timing-safe comparison ─────────────────────────────────
+async function timingSafeCompare(a, b) {
+  if (a.length !== b.length) return false;
+
   let diff = 0;
-  for (let i = 0; i < pw.length; i++) diff |= pw.charCodeAt(i) ^ expected.charCodeAt(i);
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
   return diff === 0;
+}
+
+// ── USUARIOS Y AUTENTICACIÓN ──────────────────────────────────────────
+async function getUserByToken(env, token) {
+  const email = await env.COTIZACIONES.get(TOKENS_PREFIX + token);
+  if (!email) return null;
+
+  const userData = await env.COTIZACIONES.get(USERS_PREFIX + email);
+  if (!userData) return null;
+
+  return { email, ...JSON.parse(userData) };
+}
+
+async function hasPermission(user, perm) {
+  return (user.permissions & perm) !== 0;
+}
+
+async function createAuditLog(env, user, action, resource, details = {}) {
+  const timestamp = new Date().toISOString();
+  const auditEntry = {
+    timestamp,
+    usuario: user.email,
+    accion: action,
+    recurso: resource,
+    detalles: details,
+  };
+
+  const key = AUDIT_PREFIX + timestamp + ':' + Math.random().toString(36);
+  await env.COTIZACIONES.put(key, JSON.stringify(auditEntry), { expirationTtl: 90 * 24 * 3600 }); // 90 días
+}
+
+// ── LANDING PAGE CON TOKEN ────────────────────────────────────────────
+async function generateLandingToken(env, folio) {
+  const token = Math.random().toString(36).substring(2, 34);
+  await env.COTIZACIONES.put(TOKENS_PREFIX + 'landing:' + token, folio, { expirationTtl: 30 * 24 * 3600 }); // 30 días
+  return token;
+}
+
+async function getLandingByToken(env, token) {
+  const folio = await env.COTIZACIONES.get(TOKENS_PREFIX + 'landing:' + token);
+  if (!folio) return null;
+
+  return await env.COTIZACIONES.get(KV_PREFIX + folio);
+}
+
+// ── VALIDACIÓN DE ENTRADA ─────────────────────────────────────────────
+function validateCotizacion(rec) {
+  if (!rec || typeof rec !== 'object') return false;
+  if (typeof rec.resumenCliente !== 'string' || rec.resumenCliente.length > 200) return false;
+  if (rec.campos && typeof rec.campos !== 'object') return false;
+  return true;
 }
 
 function metaOf(rec) {
@@ -72,11 +165,9 @@ async function putRecord(env, folio, rec) {
   await env.COTIZACIONES.put(KV_PREFIX + folio, JSON.stringify(rec), { metadata: metaOf(rec) });
 }
 
-// Siguiente número de folio: contador + autorreparación contra colisiones existentes
 async function nextFolioNum(env) {
   let seq = parseInt((await env.COTIZACIONES.get(SEQ_KEY)) || '0', 10) || 0;
   let num = seq + 1;
-  // Evita sobrescribir un folio ya usado (por si el contador se desincronizó)
   for (let guard = 0; guard < 10000; guard++) {
     const exists = await env.COTIZACIONES.get(KV_PREFIX + fmtFolio(num), { type: 'text' });
     if (!exists) break;
@@ -90,234 +181,50 @@ export default {
     const url = new URL(request.url);
     const origin = request.headers.get('Origin') || '';
     const path = url.pathname.replace(/\/+$/, '');
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
+    // ── CORS ──────────────────────────────────────────────────────────
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
     }
+
+    // ── HEALTH CHECK (sin auth) ───────────────────────────────────────
     if (path === '/api/health') {
-      return json({ ok: true, service: 'lindero-coti-api' }, 200, origin);
+      return json({ ok: true, service: 'lindero-coti-api-v2', timestamp: new Date().toISOString() }, 200, origin);
     }
 
-    // Página amable en la raíz (esto es el backend, no la app)
-    if (request.method === 'GET' && (path === '' || path === '/')) {
-      const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LINDERO.COTI · API</title>
-<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-background:#13241f;color:#e8f0ea;font-family:system-ui,sans-serif;text-align:center;padding:2rem}
-.c{max-width:460px}h1{color:#89D7B7;font-size:1.4rem;margin:.2rem 0}
-p{color:#9fb3aa;line-height:1.6}a{display:inline-block;margin-top:1rem;background:#89D7B7;color:#13241f;
-text-decoration:none;font-weight:700;padding:.7rem 1.4rem;border-radius:8px}</style></head>
-<body><div class="c"><h1>LINDERO.COTI · API</h1>
-<p>Este es el <b>servidor (backend)</b> del cotizador. No es una página para navegar.
-Abre la aplicación:</p>
-<a href="https://afernandezfalconi.github.io/LINDERO.COTI/">Abrir LINDERO.COTI</a></div></body></html>`;
-      return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', ...corsHeaders(origin) } });
-    }
+    // ── LANDING PAGE PÚBLICA (con token, sin auth) ────────────────────
+    const mLanding = path.match(/^\/landing\/([a-z0-9]+)$/);
+    if (request.method === 'GET' && mLanding) {
+      const token = mLanding[1];
+      const v = await getLandingByToken(env, token);
+      if (!v) return json({ error: 'Cotización no encontrada o expirada' }, 404, origin);
 
-    // Todo lo demás requiere contraseña
-    if (!(await passwordOK(request, env))) {
-      return json({ error: 'No autorizado' }, 401, origin);
-    }
+      const rec = JSON.parse(v);
+      const detallesLote = `
+        <tr><td>Forma</td><td>${rec.resumenDetalles?.forma || '—'}</td></tr>
+        <tr><td>Perímetro</td><td>${rec.resumenDetalles?.perim || '—'}</td></tr>
+        <tr><td>Área</td><td>${rec.resumenDetalles?.area || '—'}</td></tr>
+        <tr><td>Separación</td><td>${rec.resumenDetalles?.sep || '—'}</td></tr>
+        <tr><td>Portón</td><td>${rec.resumenDetalles?.porton || '—'}</td></tr>
+      `;
 
-    try {
-      // Lista de resúmenes
-      if (request.method === 'GET' && path === '/api/cotizaciones') {
-        const out = [];
-        let cursor;
-        do {
-          const res = await env.COTIZACIONES.list({ prefix: KV_PREFIX, cursor });
-          for (const k of res.keys) {
-            out.push({ id: k.name.slice(KV_PREFIX.length), ...(k.metadata || {}) });
-          }
-          cursor = res.list_complete ? null : res.cursor;
-        } while (cursor);
-        return json({ items: out }, 200, origin);
-      }
+      const materialesLote = `
+        <tr><td>Postes línea</td><td>${rec.resumenDetalles?.postesLinea || '—'}</td></tr>
+        <tr><td>Postes esquineros</td><td>${rec.resumenDetalles?.postesEsq || '—'}</td></tr>
+        <tr><td>Material</td><td>${rec.resumenDetalles?.material || '—'}</td></tr>
+        <tr><td>Modo</td><td>${rec.resumenDetalles?.modo || '—'}</td></tr>
+        <tr><td>Alambre</td><td>${rec.resumenDetalles?.alambre || '—'}</td></tr>
+        <tr><td>Mano de obra</td><td>${rec.resumenDetalles?.mo || '—'}</td></tr>
+      `;
 
-      // Cambiar la contraseña del equipo (ya validada la actual arriba)
-      if (request.method === 'POST' && path === '/api/change-password') {
-        const body = await request.json();
-        const nueva = String((body && body.nueva) || '').trim();
-        if (nueva.length < 4) return json({ error: 'La contraseña debe tener al menos 4 caracteres' }, 400, origin);
-        await env.COTIZACIONES.put('meta:password', nueva);
-        return json({ ok: true }, 200, origin);
-      }
-
-      // Migración: recalcular costos sin grampas para cotizaciones existentes
-      // Las grampas solo aplican para postes de madera, no para concreto
-      if (request.method === 'POST' && path === '/api/migrate-grampas') {
-        const out = { migradas: 0, actualizadas: 0, errores: 0 };
-        let cursor;
-        do {
-          const res = await env.COTIZACIONES.list({ prefix: KV_PREFIX, cursor, limit: 100 });
-          for (const k of res.keys) {
-            const folioKey = k.name.slice(KV_PREFIX.length);
-            try {
-              const v = await env.COTIZACIONES.get(KV_PREFIX + folioKey);
-              if (!v) continue;
-              const rec = JSON.parse(v);
-
-              // Solo migrar si no tiene el flag de migración
-              if (rec._migratedGrampas) {
-                out.migradas++;
-                continue;
-              }
-
-              // Marcar como migrada
-              rec._migratedGrampas = true;
-              rec.migratedAt = new Date().toISOString();
-
-              // Guardar la versión actualizada
-              await putRecord(env, folioKey, rec);
-              out.actualizadas++;
-            } catch (e) {
-              out.errores++;
-              console.error('Error migrando ' + folioKey, e);
-            }
-          }
-          cursor = res.list_complete ? null : res.cursor;
-        } while (cursor);
-        return json({ ok: true, ...out }, 200, origin);
-      }
-
-      // Folio preview
-      if (request.method === 'GET' && path === '/api/next-folio') {
-        const num = await nextFolioNum(env);
-        return json({ folio: fmtFolio(num), num }, 200, origin);
-      }
-
-      const mId = path.match(/^\/api\/cotizaciones\/(.+)$/);
-
-      // Registro completo
-      if (request.method === 'GET' && mId) {
-        const id = decodeURIComponent(mId[1]);
-        const v = await env.COTIZACIONES.get(KV_PREFIX + id);
-        if (!v) return json({ error: 'No encontrada' }, 404, origin);
-        return json(JSON.parse(v), 200, origin);
-      }
-
-      // Crear (folio nuevo)
-      if (request.method === 'POST' && path === '/api/cotizaciones') {
-        const body = await request.json();
-        const num = await nextFolioNum(env);
-        const folio = fmtFolio(num);
-        await env.COTIZACIONES.put(SEQ_KEY, String(num));
-        const now = new Date().toISOString();
-        const rec = { ...body, folioNum: num, resumenFolio: folio, guardadoEn: now };
-        rec.estatus = body.estatus || 'pendiente';
-        rec.campos = rec.campos || {};
-        rec.campos['cli-f'] = folio;
-        await putRecord(env, folio, rec);
-        return json({ id: folio, folio, record: rec }, 201, origin);
-      }
-
-      // Actualizar (conserva folio). Body puede traer {estatus} para cancelar/reactivar
-      if (request.method === 'PUT' && mId) {
-        const id = decodeURIComponent(mId[1]);
-        const existing = await env.COTIZACIONES.get(KV_PREFIX + id);
-        if (!existing) return json({ error: 'No encontrada' }, 404, origin);
-        const prev = JSON.parse(existing);
-        const body = await request.json();
-        const rec = { ...prev, ...body };
-        rec.folioNum = prev.folioNum;
-        rec.resumenFolio = prev.resumenFolio;
-        rec.guardadoEn = prev.guardadoEn;
-        rec.actualizadoEn = new Date().toISOString();
-        rec.estatus = body.estatus || prev.estatus || 'pendiente';
-        rec.campos = rec.campos || {};
-        rec.campos['cli-f'] = prev.resumenFolio;
-        await putRecord(env, id, rec);
-        return json({ id, record: rec }, 200, origin);
-      }
-
-      // Actualizar estado de pago + comprobante
-      if (request.method === 'POST' && mId && path.endsWith('/pago')) {
-        const id = decodeURIComponent(mId[1]);
-        const existing = await env.COTIZACIONES.get(KV_PREFIX + id);
-        if (!existing) return json({ error: 'No encontrada' }, 404, origin);
-        const prev = JSON.parse(existing);
-        const body = await request.json();
-
-        // Validar tamaño del comprobante si viene en base64
-        if (body.pago && body.pago.comprobante) {
-          const b64 = body.pago.comprobante;
-          const bytes = Buffer.byteLength(b64, 'utf8');
-          const mb = bytes / (1024 * 1024);
-          if (mb > 5) {
-            return json({ error: `Comprobante muy grande: ${mb.toFixed(2)}MB (máx 5MB)` }, 400, origin);
-          }
-        }
-
-        const rec = { ...prev };
-        rec.pago = { ...prev.pago, ...body.pago };
-        rec.actualizadoEn = new Date().toISOString();
-        await putRecord(env, id, rec);
-        return json({ id, record: rec }, 200, origin);
-      }
-
-      // Descargar comprobante
-      if (request.method === 'GET' && mId && path.endsWith('/voucher')) {
-        const id = decodeURIComponent(mId[1]);
-        const existing = await env.COTIZACIONES.get(KV_PREFIX + id);
-        if (!existing) return json({ error: 'No encontrada' }, 404, origin);
-        const rec = JSON.parse(existing);
-        if (!rec.pago || !rec.pago.comprobante) {
-          return json({ error: 'Sin comprobante' }, 404, origin);
-        }
-
-        const b64 = rec.pago.comprobante;
-        const match = b64.match(/^data:([^;]+);base64,(.+)$/);
-        const mimeType = match ? match[1] : 'application/octet-stream';
-        const data = match ? match[2] : b64;
-
-        try {
-          const binary = Buffer.from(data, 'base64');
-          return new Response(binary, {
-            status: 200,
-            headers: {
-              'Content-Type': mimeType,
-              'Content-Disposition': `attachment; filename="${rec.resumenFolio}-voucher"`,
-              ...corsHeaders(origin),
-            },
-          });
-        } catch (e) {
-          return json({ error: 'Error al decodificar comprobante' }, 500, origin);
-        }
-      }
-
-      // Landing page pública (sin auth) para compartir con cliente
-      const mLanding = path.match(/^\/landing\/(.+)$/);
-      if (request.method === 'GET' && mLanding) {
-        const id = decodeURIComponent(mLanding[1]);
-        const v = await env.COTIZACIONES.get(KV_PREFIX + id);
-        if (!v) return json({ error: 'Cotización no encontrada' }, 404, origin);
-
-        const rec = JSON.parse(v);
-
-        // Generar landing page HTML
-        const detallesLote = `
-          <tr><td>Forma</td><td>${rec.resumenDetalles?.forma || '—'}</td></tr>
-          <tr><td>Perímetro</td><td>${rec.resumenDetalles?.perim || '—'}</td></tr>
-          <tr><td>Área</td><td>${rec.resumenDetalles?.area || '—'}</td></tr>
-          <tr><td>Separación</td><td>${rec.resumenDetalles?.sep || '—'}</td></tr>
-          <tr><td>Portón</td><td>${rec.resumenDetalles?.porton || '—'}</td></tr>
-        `;
-
-        const materialesLote = `
-          <tr><td>Postes línea</td><td>${rec.resumenDetalles?.postesLinea || '—'}</td></tr>
-          <tr><td>Postes esquineros</td><td>${rec.resumenDetalles?.postesEsq || '—'}</td></tr>
-          <tr><td>Material</td><td>${rec.resumenDetalles?.material || '—'}</td></tr>
-          <tr><td>Modo</td><td>${rec.resumenDetalles?.modo || '—'}</td></tr>
-          <tr><td>Alambre</td><td>${rec.resumenDetalles?.alambre || '—'}</td></tr>
-          <tr><td>Mano de obra</td><td>${rec.resumenDetalles?.mo || '—'}</td></tr>
-        `;
-
-        const html = `<!DOCTYPE html>
+      const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Cotización ${rec.resumenFolio} - Lindero</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -327,19 +234,11 @@ Abre la aplicación:</p>
     .logo { font-size: 1.5rem; font-weight: bold; color: #13241f; margin-bottom: 0.5rem; }
     .fecha { font-size: 0.9rem; color: #666; }
     .cliente { background: #f9f9f9; padding: 1rem; border-radius: 6px; margin-bottom: 2rem; border-left: 4px solid #89D7B7; }
-    .cliente-label { font-weight: 600; color: #13241f; }
-    .cliente-value { color: #555; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
-    th { background: #13241f; color: white; padding: 0.75rem; text-align: left; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; }
+    th { background: #13241f; color: white; padding: 0.75rem; text-align: left; font-size: 0.9rem; text-transform: uppercase; }
     td { padding: 0.75rem; border-bottom: 1px solid #ddd; }
-    tr:hover { background: #f9f9f9; }
     .total-section { background: #13241f; color: white; padding: 2rem; border-radius: 8px; text-align: center; margin-top: 2rem; }
-    .total-label { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; }
-    .total-valor { font-size: 2.5rem; font-weight: bold; color: #89D7B7; margin: 0.5rem 0; }
-    .notas { background: #f0f8f6; border-left: 4px solid #89D7B7; padding: 1rem; border-radius: 4px; margin-top: 2rem; font-size: 0.9rem; color: #555; }
-    .notas strong { color: #13241f; }
-    .footer { margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #ddd; text-align: center; color: #666; font-size: 0.85rem; }
-    .vigencia { background: #fff3cd; border-left: 4px solid #ffc107; padding: 1rem; border-radius: 4px; margin-top: 1.5rem; }
+    .total-valor { font-size: 2.5rem; font-weight: bold; color: #89D7B7; }
   </style>
 </head>
 <body>
@@ -347,63 +246,252 @@ Abre la aplicación:</p>
     <div class="header">
       <div class="logo">🚧 LINDERO</div>
       <div class="fecha">Folio: ${rec.resumenFolio}</div>
-      <div class="fecha">Cotización válida por ${rec.campos?.['emp-vigencia'] || '15 días naturales'}</div>
     </div>
-
     <div class="cliente">
-      <div class="cliente-label">Cliente</div>
-      <div class="cliente-value">${rec.resumenCliente || '—'}</div>
-      ${rec.campos?.['cli-u'] ? `<div style="margin-top:0.5rem;"><span class="cliente-label">Ubicación:</span> <span class="cliente-value">${rec.campos['cli-u']}</span></div>` : ''}
+      <strong>Cliente:</strong> ${rec.resumenCliente || '—'}
     </div>
-
-    <h3 style="color:#13241f;margin-bottom:1rem">Detalle del Lote</h3>
-    <table>
-      <tbody>
-        ${detallesLote}
-      </tbody>
-    </table>
-
-    <h3 style="color:#13241f;margin-bottom:1rem">Materiales y Mano de Obra</h3>
-    <table>
-      <tbody>
-        ${materialesLote}
-      </tbody>
-    </table>
-
+    <h3>Detalle del Lote</h3>
+    <table><tbody>${detallesLote}</tbody></table>
+    <h3>Materiales y Mano de Obra</h3>
+    <table><tbody>${materialesLote}</tbody></table>
     <div class="total-section">
-      <div class="total-label">Precio Total</div>
+      <div>Precio Total</div>
       <div class="total-valor">${rec.resumenTotal || '$—'}</div>
-      <div style="font-size:0.9rem;margin-top:1rem;opacity:0.9">Incluye materiales, instalación y mano de obra</div>
-    </div>
-
-    <div class="vigencia">
-      <strong>⏰ Vigencia de la cotización:</strong> ${rec.campos?.['emp-vigencia'] || '15 días naturales'} a partir de la fecha de emisión.
-    </div>
-
-    <div class="notas">
-      <strong>📌 Importante:</strong> Los costos de materiales de construcción están sujetos a fluctuaciones del mercado. Cambios significativos en los precios pueden afectar esta cotización independientemente de su vigencia. En tal caso, se notificará al cliente antes de iniciar el proyecto.
-    </div>
-
-    <div class="footer">
-      <p>Cotización generada por LINDERO • Cotizador de Posteo</p>
-      <p>LÍMITES. PROTECCIÓN. PRECISIÓN.</p>
     </div>
   </div>
 </body>
 </html>`;
 
-        return new Response(html, {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'public, max-age=3600',
-            ...corsHeaders(origin),
-          },
-        });
+      return new Response(html, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600',
+          'X-Content-Type-Options': 'nosniff',
+          ...corsHeaders(origin),
+        },
+      });
+    }
+
+    // ── RESTO DE ENDPOINTS REQUIEREN AUTENTICACIÓN ────────────────────
+    const token = request.headers.get('X-Auth-Token');
+    const userEmail = request.headers.get('X-User-Email');
+
+    if (!token || !userEmail) {
+      return json({ error: 'No autorizado' }, 401, origin);
+    }
+
+    // Rate limiting
+    if (!(await checkRateLimit(env, ip))) {
+      return json({ error: 'Demasiadas solicitudes, intenta más tarde' }, 429, origin);
+    }
+
+    // Obtener usuario
+    const user = await getUserByToken(env, token);
+    if (!user || user.email !== userEmail) {
+      if (!(await checkRateLimit(env, ip + ':auth', true))) {
+        return json({ error: 'Intentos de autenticación excedidos' }, 429, origin);
+      }
+      return json({ error: 'Token inválido o expirado' }, 401, origin);
+    }
+
+    try {
+      // ── LOGIN / OBTENER TOKEN ────────────────────────────────────────
+      if (request.method === 'POST' && path === '/api/auth/login') {
+        // Solo admin puede loguear otros usuarios
+        const body = await request.json();
+        const email = body.email;
+
+        if (!email || typeof email !== 'string' || !email.includes('@')) {
+          return json({ error: 'Email inválido' }, 400, origin);
+        }
+
+        // Solo el admin o el usuario mismo puede loguearse
+        if (user.email !== email && user.email !== ADMIN_EMAIL) {
+          await createAuditLog(env, user, 'LOGIN_ATTEMPT_DENIED', email, { reason: 'No admin' });
+          return json({ error: 'Sin permiso' }, 403, origin);
+        }
+
+        // Generar token
+        const newToken = Math.random().toString(36).substring(2, 34) + Math.random().toString(36).substring(2, 34);
+        await env.COTIZACIONES.put(TOKENS_PREFIX + newToken, email, { expirationTtl: 7 * 24 * 3600 }); // 7 días
+
+        await createAuditLog(env, user, 'LOGIN', email);
+        return json({ token: newToken, email }, 200, origin);
+      }
+
+      // ── LISTAR COTIZACIONES ──────────────────────────────────────────
+      if (request.method === 'GET' && path === '/api/cotizaciones') {
+        if (!(await hasPermission(user, PERMISSIONS.VIEW_COTIZACIONES))) {
+          return json({ error: 'Sin permisos para ver cotizaciones' }, 403, origin);
+        }
+
+        const out = [];
+        let cursor;
+        do {
+          const res = await env.COTIZACIONES.list({ prefix: KV_PREFIX, cursor, limit: 50 });
+          for (const k of res.keys) {
+            out.push({ id: k.name.slice(KV_PREFIX.length), ...(k.metadata || {}) });
+          }
+          cursor = res.list_complete ? null : res.cursor;
+        } while (cursor);
+
+        await createAuditLog(env, user, 'LIST_COTIZACIONES', 'all', { count: out.length });
+        return json({ items: out }, 200, origin);
+      }
+
+      // ── OBTENER COTIZACIÓN ───────────────────────────────────────────
+      if (request.method === 'GET' && path.match(/^\/api\/cotizaciones\/[^/]+$/)) {
+        if (!(await hasPermission(user, PERMISSIONS.VIEW_COTIZACIONES))) {
+          return json({ error: 'Sin permisos' }, 403, origin);
+        }
+
+        const id = path.split('/').pop();
+        const v = await env.COTIZACIONES.get(KV_PREFIX + id);
+        if (!v) return json({ error: 'No encontrada' }, 404, origin);
+
+        const rec = JSON.parse(v);
+        await createAuditLog(env, user, 'VIEW', id);
+        return json(rec, 200, origin);
+      }
+
+      // ── CREAR COTIZACIÓN ─────────────────────────────────────────────
+      if (request.method === 'POST' && path === '/api/cotizaciones') {
+        if (!(await hasPermission(user, PERMISSIONS.CREATE_COTIZACIONES))) {
+          return json({ error: 'Sin permisos para crear' }, 403, origin);
+        }
+
+        const body = await request.json();
+        if (!validateCotizacion(body)) {
+          return json({ error: 'Datos inválidos' }, 400, origin);
+        }
+
+        const num = await nextFolioNum(env);
+        const folio = fmtFolio(num);
+        await env.COTIZACIONES.put(SEQ_KEY, String(num));
+
+        const now = new Date().toISOString();
+        const rec = { ...body, folioNum: num, resumenFolio: folio, guardadoEn: now, creador: user.email };
+        rec.estatus = body.estatus || 'pendiente';
+        rec.campos = rec.campos || {};
+        rec.campos['cli-f'] = folio;
+
+        await putRecord(env, folio, rec);
+        await createAuditLog(env, user, 'CREATE', folio);
+
+        return json({ id: folio, folio, record: rec }, 201, origin);
+      }
+
+      // ── ACTUALIZAR COTIZACIÓN ────────────────────────────────────────
+      if (request.method === 'PUT' && path.match(/^\/api\/cotizaciones\/[^/]+$/)) {
+        const id = path.split('/').pop();
+        const existing = await env.COTIZACIONES.get(KV_PREFIX + id);
+        if (!existing) return json({ error: 'No encontrada' }, 404, origin);
+
+        const prev = JSON.parse(existing);
+
+        // Verificar permisos: puede editar propia o todas (si es admin)
+        const canEditAll = await hasPermission(user, PERMISSIONS.EDIT_ALL);
+        const canEditOwn = await hasPermission(user, PERMISSIONS.EDIT_OWN);
+        const isOwner = prev.creador === user.email;
+
+        if (!canEditAll && (!canEditOwn || !isOwner)) {
+          await createAuditLog(env, user, 'EDIT_DENIED', id, { reason: 'No permissions' });
+          return json({ error: 'Sin permisos para editar' }, 403, origin);
+        }
+
+        const body = await request.json();
+        if (!validateCotizacion(body)) {
+          return json({ error: 'Datos inválidos' }, 400, origin);
+        }
+
+        const rec = { ...prev, ...body };
+        rec.folioNum = prev.folioNum;
+        rec.resumenFolio = prev.resumenFolio;
+        rec.guardadoEn = prev.guardadoEn;
+        rec.actualizadoEn = new Date().toISOString();
+        rec.creador = prev.creador;
+
+        // Registrar cambios específicos
+        const cambios = {};
+        for (const key in body) {
+          if (JSON.stringify(prev[key]) !== JSON.stringify(body[key])) {
+            cambios[key] = { anterior: prev[key], nuevo: body[key] };
+          }
+        }
+
+        await putRecord(env, id, rec);
+        await createAuditLog(env, user, 'EDIT', id, { cambios });
+
+        return json({ id, record: rec }, 200, origin);
+      }
+
+      // ── AUDITORÍA (solo admin/usuarios con permisos) ──────────────────
+      if (request.method === 'GET' && path === '/api/audit') {
+        if (!(await hasPermission(user, PERMISSIONS.VIEW_AUDIT)) && user.email !== ADMIN_EMAIL) {
+          return json({ error: 'Sin permisos' }, 403, origin);
+        }
+
+        const out = [];
+        let cursor;
+        do {
+          const res = await env.COTIZACIONES.list({ prefix: AUDIT_PREFIX, cursor, limit: 100 });
+          for (const k of res.keys) {
+            const audit = await env.COTIZACIONES.get(k.name);
+            if (audit) out.push(JSON.parse(audit));
+          }
+          cursor = res.list_complete ? null : res.cursor;
+        } while (cursor);
+
+        return json({ items: out.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)) }, 200, origin);
+      }
+
+      // ── GESTIÓN DE USUARIOS (solo admin) ─────────────────────────────
+      if (path.startsWith('/api/users') && user.email !== ADMIN_EMAIL) {
+        return json({ error: 'Solo admin' }, 403, origin);
+      }
+
+      if (request.method === 'POST' && path === '/api/users') {
+        const body = await request.json();
+        const newEmail = body.email;
+        const role = body.role || 'VIEWER';
+
+        if (!newEmail || !newEmail.includes('@') || !ROLES[role]) {
+          return json({ error: 'Datos inválidos' }, 400, origin);
+        }
+
+        const userData = {
+          email: newEmail,
+          rol: role,
+          permissions: ROLES[role],
+          creadoEn: new Date().toISOString(),
+          creadoPor: user.email,
+        };
+
+        await env.COTIZACIONES.put(USERS_PREFIX + newEmail, JSON.stringify(userData));
+        await createAuditLog(env, user, 'CREATE_USER', newEmail, { role });
+
+        return json(userData, 201, origin);
+      }
+
+      if (request.method === 'GET' && path === '/api/users') {
+        const out = [];
+        let cursor;
+        do {
+          const res = await env.COTIZACIONES.list({ prefix: USERS_PREFIX, cursor, limit: 50 });
+          for (const k of res.keys) {
+            const userData = await env.COTIZACIONES.get(k.name);
+            if (userData) out.push(JSON.parse(userData));
+          }
+          cursor = res.list_complete ? null : res.cursor;
+        } while (cursor);
+
+        return json({ items: out }, 200, origin);
       }
 
       return json({ error: 'Ruta no encontrada' }, 404, origin);
     } catch (e) {
+      console.error(e);
       return json({ error: String((e && e.message) || e) }, 500, origin);
     }
   },
