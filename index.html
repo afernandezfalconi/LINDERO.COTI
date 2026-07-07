@@ -340,10 +340,16 @@ function irAlHome(){
     <button class="tb" onclick="abrirConfigEmpresa()">🏢 Datos de empresa</button>
     <button class="tb" onclick="abrirListaCotizaciones()">📂 Mis cotizaciones</button>
     <button class="tb" onclick="abrirFinanzas()">💰 Finanzas</button>
+    <button class="tb" id="menu-usuarios" style="display:none" onclick="abrirPanelAdmin()">👥 Usuarios</button>
+    <button class="tb" id="menu-auditoria" style="display:none" onclick="abrirAuditoria()">📊 Auditoría</button>
     <button class="tb" onclick="nuevaCotizacion()">✚ Nueva</button>
     <button class="tb ok" id="btn-guardar" onclick="guardarCotizacion()">💾 Guardar cotización</button>
+    <div style="font-size:12px;text-align:right;padding:0 1rem;border-right:1px solid var(--border);min-width:150px">
+      <div>👤 <span id="username">—</span></div>
+      <div style="color:var(--muted);font-size:11px">Rol: <span id="userrole">—</span></div>
+    </div>
     <button class="tb" onclick="abrirModalPassword()" title="Cambiar contraseña del equipo">🔑 Contraseña</button>
-    <button class="tb" onclick="cerrarSesionManual()" title="Cerrar sesión">🔒 Salir</button>
+    <button class="tb" onclick="cerrarSesion()" title="Cerrar sesión">🔒 Salir</button>
   </div>
 </div>
 
@@ -2992,6 +2998,244 @@ function cerrarFinanzas(){
   document.getElementById('modal-finanzas-overlay').style.display='none';
 }
 
+// ── FASE 1-5: USUARIOS, PERMISOS, AUDITORÍA ──────────────────────────
+
+// FASE 1: AUTENTICACIÓN POR TOKEN
+const PERMISSIONS={VIEW_COTIZACIONES:1,CREATE_COTIZACIONES:2,EDIT_OWN:4,EDIT_ALL:8,DELETE_OWN:16,DELETE_ALL:32,VIEW_AUDIT:64,MANAGE_USERS:128,VIEW_LANDING:256};
+let currentUser=null;
+let userToken=null;
+let inactivityTimer=null;
+
+function obtenerUsuarioActual(){return JSON.parse(sessionStorage.getItem('user')||'{}');}
+function obtenerToken(){return sessionStorage.getItem('token')||'';}
+
+function guardarSesion(token, user){
+  sessionStorage.setItem('token', token);
+  sessionStorage.setItem('user', JSON.stringify(user));
+  currentUser=user;
+  userToken=token;
+  actualizarUIUsuario();
+  resetearInactivity();
+}
+
+function cerrarSesion(){
+  sessionStorage.removeItem('token');
+  sessionStorage.removeItem('user');
+  sessionStorage.removeItem('PW_KEY');
+  currentUser=null;
+  userToken=null;
+  irAlHome();
+}
+
+function resetearInactivity(){
+  clearTimeout(inactivityTimer);
+  inactivityTimer=setTimeout(()=>{
+    if(userToken) cerrarSesion();
+  }, 30*60*1000); // 30 min
+}
+
+function actualizarUIUsuario(){
+  const user=obtenerUsuarioActual();
+  if(user.email){
+    document.getElementById('username').textContent=user.email;
+    document.getElementById('userrole').textContent=user.rol||'VIEWER';
+    actualizarUIPermisos(user);
+  }
+}
+
+async function hasPermission(perm){
+  const user=obtenerUsuarioActual();
+  return (user.permissions & perm)!==0;
+}
+
+function actualizarUIPermisos(user){
+  const puedeCrear=async()=>(user.permissions&PERMISSIONS.CREATE_COTIZACIONES)!==0;
+  const puedeAdmin=async()=>user.email==='afernandezfalconi@gmail.com';
+
+  document.querySelectorAll('[data-perm="CREATE"]').forEach(el=>{
+    el.disabled=!(user.permissions&PERMISSIONS.CREATE_COTIZACIONES);
+  });
+
+  const menuAdmin=document.getElementById('menu-usuarios');
+  if(menuAdmin) menuAdmin.style.display=user.email==='afernandezfalconi@gmail.com'?'block':'none';
+
+  const menuAudit=document.getElementById('menu-auditoria');
+  if(menuAudit) menuAudit.style.display=((user.permissions&PERMISSIONS.VIEW_AUDIT)!==0||user.email==='afernandezfalconi@gmail.com')?'block':'none';
+}
+
+// FASE 2: PANEL ADMIN - GESTIÓN DE USUARIOS
+async function abrirPanelAdmin(){
+  if(obtenerUsuarioActual().email!=='afernandezfalconi@gmail.com'){
+    alert('Solo admin');
+    return;
+  }
+  const modal=document.getElementById('modal-admin');
+  if(!modal) crearPanelAdmin();
+  document.getElementById('modal-admin').style.display='flex';
+  await cargarListaUsuarios();
+}
+
+function cerrarPanelAdmin(){
+  const modal=document.getElementById('modal-admin');
+  if(modal) modal.style.display='none';
+}
+
+function crearPanelAdmin(){
+  const modalHTML=`<div id="modal-admin" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2rem;max-width:800px;max-height:90vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.3)">
+      <h2 style="margin-bottom:1.5rem">👥 Gestión de Usuarios</h2>
+
+      <h3>Usuarios Actuales</h3>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:2rem">
+        <thead><tr style="background:var(--bg3)"><th style="padding:0.75rem;text-align:left">Email</th><th>Rol</th><th>Creado en</th><th>Acciones</th></tr></thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+
+      <h3>Agregar Usuario</h3>
+      <div style="display:grid;gap:1rem;grid-template-columns:1fr 150px;margin-bottom:1rem">
+        <input type="email" id="new-user-email" placeholder="usuario@example.com" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+        <select id="new-user-role" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+          <option value="VIEWER">VIEWER</option>
+          <option value="EDITOR">EDITOR</option>
+          <option value="ADMIN">ADMIN</option>
+        </select>
+      </div>
+      <button class="btnp" onclick="agregarUsuario()" style="margin-bottom:2rem;background:var(--accent)">➕ Agregar Usuario</button>
+
+      <button class="btnp" style="width:100%;background:var(--bg3);border:1px solid var(--border)" onclick="cerrarPanelAdmin()">Cerrar</button>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+async function cargarListaUsuarios(){
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  try{
+    const resp=await fetch(API_BASE+'/api/users', {headers:{'X-Auth-Token':token,'X-User-Email':user.email}});
+    if(!resp.ok) throw new Error('Error al cargar usuarios');
+    const data=await resp.json();
+
+    const tbody=document.getElementById('users-tbody');
+    tbody.innerHTML='';
+    data.items.forEach(u=>{
+      const row=`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:0.75rem">${u.email}</td>
+        <td>${u.rol||'VIEWER'}</td>
+        <td>${new Date(u.creadoEn).toLocaleDateString('es-MX')}</td>
+        <td><button onclick="resendToken('${u.email}')" style="font-size:0.8rem;padding:0.3rem 0.6rem">🔑 Token</button></td>
+      </tr>`;
+      tbody.insertAdjacentHTML('beforeend', row);
+    });
+  }catch(e){
+    console.error(e);
+  }
+}
+
+async function agregarUsuario(){
+  const email=document.getElementById('new-user-email').value;
+  const role=document.getElementById('new-user-role').value;
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+
+  if(!email||!email.includes('@')){
+    alert('Email inválido');
+    return;
+  }
+
+  try{
+    const resp=await fetch(API_BASE+'/api/users', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
+      body:JSON.stringify({email,role})
+    });
+    if(!resp.ok) throw new Error('Error');
+    await cargarListaUsuarios();
+    document.getElementById('new-user-email').value='';
+    toast('✓ Usuario creado',true);
+  }catch(e){
+    alert('Error: '+e.message);
+  }
+}
+
+async function resendToken(email){
+  alert('Token para '+email+': [mostrar en UI]');
+}
+
+// FASE 3: AUDITORÍA
+async function abrirAuditoria(){
+  if(!(await hasPermission(PERMISSIONS.VIEW_AUDIT))&&obtenerUsuarioActual().email!=='afernandezfalconi@gmail.com'){
+    alert('Sin permiso');
+    return;
+  }
+  const modal=document.getElementById('modal-auditoria');
+  if(!modal) crearPanelAuditoria();
+  document.getElementById('modal-auditoria').style.display='flex';
+  await cargarAuditoria();
+}
+
+function cerrarAuditoria(){
+  const modal=document.getElementById('modal-auditoria');
+  if(modal) modal.style.display='none';
+}
+
+function crearPanelAuditoria(){
+  const modalHTML=`<div id="modal-auditoria" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2rem;max-width:1000px;max-height:90vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.3)">
+      <h2 style="margin-bottom:1.5rem">📊 Bitácora de Auditoría</h2>
+
+      <div style="display:grid;gap:1rem;grid-template-columns:repeat(3,1fr);margin-bottom:1rem">
+        <input type="text" id="audit-filter-usuario" placeholder="Usuario" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+        <select id="audit-filter-accion" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+          <option value="">Todas</option>
+          <option value="CREATE">CREATE</option>
+          <option value="EDIT">EDIT</option>
+          <option value="VIEW">VIEW</option>
+          <option value="DELETE">DELETE</option>
+          <option value="LOGIN">LOGIN</option>
+        </select>
+        <button onclick="filtrarAuditoria()" style="padding:0.5rem;background:var(--accent);border:none;border-radius:4px">🔍 Filtrar</button>
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+        <thead><tr style="background:var(--bg3)"><th style="padding:0.5rem;text-align:left">Hora</th><th>Usuario</th><th>Acción</th><th>Recurso</th></tr></thead>
+        <tbody id="audit-tbody"></tbody>
+      </table>
+
+      <button class="btnp" style="width:100%;margin-top:1rem;background:var(--bg3);border:1px solid var(--border)" onclick="cerrarAuditoria()">Cerrar</button>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+async function cargarAuditoria(){
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  try{
+    const resp=await fetch(API_BASE+'/api/audit', {headers:{'X-Auth-Token':token,'X-User-Email':user.email}});
+    if(!resp.ok) throw new Error('Error');
+    const data=await resp.json();
+
+    const tbody=document.getElementById('audit-tbody');
+    tbody.innerHTML='';
+    data.items.slice(0,100).forEach(a=>{
+      const row=`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:0.5rem">${new Date(a.timestamp).toLocaleString('es-MX')}</td>
+        <td>${a.usuario}</td>
+        <td>${a.accion}</td>
+        <td>${a.recurso}</td>
+      </tr>`;
+      tbody.insertAdjacentHTML('beforeend', row);
+    });
+  }catch(e){
+    console.error(e);
+  }
+}
+
+async function filtrarAuditoria(){
+  await cargarAuditoria();
+}
+
 // ── INIT ──────────────────────────────────────────────────────────
 buildLados();
 updPortSel();
@@ -3000,6 +3244,7 @@ cargarConfigEmpresaInicial();
 refrescarSelectorProveedores();
 asignarFolioPreview();      // muestra el folio que tomará la próxima cotización
 actualizarBotonGuardar();   // botón en estado "Guardar" (cotización nueva)
+actualizarUIUsuario();      // mostrar usuario actual
 </script>
 </body>
 </html>
