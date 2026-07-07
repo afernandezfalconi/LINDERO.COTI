@@ -19,7 +19,11 @@ const USERS_PREFIX = 'user:';
 const AUDIT_PREFIX = 'audit:';
 const TOKENS_PREFIX = 'token:';
 const RATE_LIMIT_PREFIX = 'ratelimit:';
+const PROVIDERS_PREFIX = 'provider:';
+const PROVIDER_HISTORY_PREFIX = 'provider_history:';
+const LANDING_PREFIX = 'landing:';
 const SEQ_KEY = 'meta:folioSeq';
+const PROVIDERS_SEQ_KEY = 'meta:providerSeq';
 const FOLIO_PREFIX = 'COT-';
 const ADMIN_EMAIL = 'afernandezfalconi@gmail.com';
 
@@ -126,6 +130,118 @@ async function createAuditLog(env, user, action, resource, details = {}) {
 
   const key = AUDIT_PREFIX + timestamp + ':' + Math.random().toString(36);
   await env.COTIZACIONES.put(key, JSON.stringify(auditEntry), { expirationTtl: 90 * 24 * 3600 }); // 90 días
+}
+
+// ── PROVEEDORES Y HISTORIAL DE PRECIOS ────────────────────────────────
+async function getProviderById(env, providerId) {
+  const data = await env.COTIZACIONES.get(PROVIDERS_PREFIX + providerId);
+  return data ? JSON.parse(data) : null;
+}
+
+async function getAllProviders(env) {
+  const providers = [];
+  let cursor;
+  do {
+    const res = await env.COTIZACIONES.list({ prefix: PROVIDERS_PREFIX, cursor, limit: 100 });
+    for (const k of res.keys) {
+      const data = await env.COTIZACIONES.get(k.name);
+      if (data) providers.push(JSON.parse(data));
+    }
+    cursor = res.list_complete ? null : res.cursor;
+  } while (cursor);
+  return providers.sort((a, b) => a.nombre.localeCompare(b.nombre));
+}
+
+async function createProvider(env, providerData) {
+  const seq = parseInt((await env.COTIZACIONES.get(PROVIDERS_SEQ_KEY)) || '0') + 1;
+  await env.COTIZACIONES.put(PROVIDERS_SEQ_KEY, String(seq));
+
+  const provider = {
+    id: String(seq),
+    nombre: providerData.nombre,
+    categoria: providerData.categoria,
+    contacto: providerData.contacto || {},
+    notas: providerData.notas || '',
+    precioActual: providerData.precioActual || 0,
+    ultimaActualizacion: new Date().toISOString(),
+    historialPrecios: [
+      {
+        fecha: new Date().toISOString(),
+        precio: providerData.precioActual || 0,
+        motivo: 'Precio inicial'
+      }
+    ]
+  };
+
+  await env.COTIZACIONES.put(PROVIDERS_PREFIX + provider.id, JSON.stringify(provider));
+  return provider;
+}
+
+async function updateProvider(env, providerId, updates) {
+  const provider = await getProviderById(env, providerId);
+  if (!provider) return null;
+
+  const updated = { ...provider, ...updates, ultimaActualizacion: new Date().toISOString() };
+  await env.COTIZACIONES.put(PROVIDERS_PREFIX + providerId, JSON.stringify(updated));
+  return updated;
+}
+
+async function deleteProvider(env, providerId) {
+  await env.COTIZACIONES.delete(PROVIDERS_PREFIX + providerId);
+  return true;
+}
+
+async function addPriceHistory(env, providerId, precio, motivo = '') {
+  const provider = await getProviderById(env, providerId);
+  if (!provider) return null;
+
+  const newEntry = {
+    fecha: new Date().toISOString(),
+    precio,
+    motivo
+  };
+
+  provider.historialPrecios = provider.historialPrecios || [];
+  provider.historialPrecios.unshift(newEntry); // Agregar al inicio (más reciente)
+  provider.precioActual = precio;
+  provider.ultimaActualizacion = newEntry.fecha;
+
+  // Guardar histórico también en tabla separada para análisis rápido
+  const monthKey = new Date().toISOString().substring(0, 7); // YYYY-MM
+  const historyKey = PROVIDER_HISTORY_PREFIX + providerId + ':' + monthKey;
+  const monthHistory = JSON.parse((await env.COTIZACIONES.get(historyKey)) || '{"precios":[]}');
+  monthHistory.precios.unshift({ ...newEntry });
+  await env.COTIZACIONES.put(historyKey, JSON.stringify(monthHistory));
+
+  // Guardar proveedor actualizado
+  await env.COTIZACIONES.put(PROVIDERS_PREFIX + providerId, JSON.stringify(provider));
+  return provider;
+}
+
+async function getPriceHistory(env, providerId) {
+  const provider = await getProviderById(env, providerId);
+  if (!provider) return null;
+  return provider.historialPrecios || [];
+}
+
+async function getPriceStats(env, providerId) {
+  const history = await getPriceHistory(env, providerId);
+  if (!history || history.length === 0) return null;
+
+  const precios = history.map(h => h.precio);
+  const minimo = Math.min(...precios);
+  const maximo = Math.max(...precios);
+  const promedio = precios.reduce((a, b) => a + b, 0) / precios.length;
+  const volatilidad = Math.sqrt(precios.reduce((sum, p) => sum + Math.pow(p - promedio, 2), 0) / precios.length);
+
+  return {
+    minimo: Math.round(minimo * 100) / 100,
+    maximo: Math.round(maximo * 100) / 100,
+    promedio: Math.round(promedio * 100) / 100,
+    volatilidad: Math.round(volatilidad * 100) / 100,
+    cambioReciente: history.length >= 2 ? ((history[0].precio - history[1].precio) / history[1].precio * 100).toFixed(2) + '%' : '0%',
+    cantidadDatos: history.length
+  };
 }
 
 // ── LANDING PAGE CON TOKEN ────────────────────────────────────────────
@@ -526,6 +642,98 @@ export default {
         } while (cursor);
 
         return json({ items: out }, 200, origin);
+      }
+
+      // ── PROVEEDORES (público para lectura, admin para crear/editar) ────
+      if (request.method === 'GET' && path === '/api/providers') {
+        const providers = await getAllProviders(env);
+        await createAuditLog(env, user, 'VIEW_PROVIDERS', 'all', { count: providers.length });
+        return json({ items: providers }, 200, origin);
+      }
+
+      if (request.method === 'GET' && path.match(/^\/api\/providers\/(\d+)$/)) {
+        const providerId = path.split('/').pop();
+        const provider = await getProviderById(env, providerId);
+        if (!provider) return json({ error: 'Proveedor no encontrado' }, 404, origin);
+
+        await createAuditLog(env, user, 'VIEW_PROVIDER', providerId);
+        return json(provider, 200, origin);
+      }
+
+      if (request.method === 'GET' && path.match(/^\/api\/providers\/(\d+)\/history$/)) {
+        const providerId = path.split('/')[3];
+        const history = await getPriceHistory(env, providerId);
+        if (!history) return json({ error: 'Proveedor no encontrado' }, 404, origin);
+
+        await createAuditLog(env, user, 'VIEW_PRICE_HISTORY', providerId);
+        return json({ history }, 200, origin);
+      }
+
+      if (request.method === 'GET' && path.match(/^\/api\/providers\/(\d+)\/stats$/)) {
+        const providerId = path.split('/')[3];
+        const stats = await getPriceStats(env, providerId);
+        if (!stats) return json({ error: 'Proveedor no encontrado' }, 404, origin);
+
+        return json(stats, 200, origin);
+      }
+
+      if (request.method === 'POST' && path === '/api/providers') {
+        if (user.email !== ADMIN_EMAIL) {
+          return json({ error: 'Solo admin puede crear proveedores' }, 403, origin);
+        }
+
+        const body = await request.json();
+        if (!body.nombre) return json({ error: 'Nombre requerido' }, 400, origin);
+
+        const provider = await createProvider(env, body);
+        await createAuditLog(env, user, 'CREATE_PROVIDER', provider.id, { nombre: body.nombre });
+        return json(provider, 201, origin);
+      }
+
+      if (request.method === 'PUT' && path.match(/^\/api\/providers\/(\d+)$/)) {
+        if (user.email !== ADMIN_EMAIL) {
+          return json({ error: 'Solo admin puede editar proveedores' }, 403, origin);
+        }
+
+        const providerId = path.split('/').pop();
+        const body = await request.json();
+        const updated = await updateProvider(env, providerId, body);
+        if (!updated) return json({ error: 'Proveedor no encontrado' }, 404, origin);
+
+        await createAuditLog(env, user, 'UPDATE_PROVIDER', providerId, body);
+        return json(updated, 200, origin);
+      }
+
+      if (request.method === 'POST' && path.match(/^\/api\/providers\/(\d+)\/price$/)) {
+        if (user.email !== ADMIN_EMAIL) {
+          return json({ error: 'Solo admin puede actualizar precios' }, 403, origin);
+        }
+
+        const providerId = path.split('/')[3];
+        const body = await request.json();
+        if (typeof body.precio !== 'number') {
+          return json({ error: 'Precio requerido (número)' }, 400, origin);
+        }
+
+        const updated = await addPriceHistory(env, providerId, body.precio, body.motivo || '');
+        if (!updated) return json({ error: 'Proveedor no encontrado' }, 404, origin);
+
+        await createAuditLog(env, user, 'UPDATE_PRICE', providerId, {
+          precio: body.precio,
+          motivo: body.motivo
+        });
+        return json(updated, 200, origin);
+      }
+
+      if (request.method === 'DELETE' && path.match(/^\/api\/providers\/(\d+)$/)) {
+        if (user.email !== ADMIN_EMAIL) {
+          return json({ error: 'Solo admin puede eliminar proveedores' }, 403, origin);
+        }
+
+        const providerId = path.split('/').pop();
+        await deleteProvider(env, providerId);
+        await createAuditLog(env, user, 'DELETE_PROVIDER', providerId);
+        return json({ message: 'Proveedor eliminado' }, 200, origin);
       }
 
       return json({ error: 'Ruta no encontrada' }, 404, origin);
