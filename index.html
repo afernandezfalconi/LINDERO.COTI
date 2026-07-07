@@ -375,6 +375,7 @@ function irAlHome(){
           <div id="emp-vacio-msg" style="font-size:12px;color:var(--muted);font-family:var(--fm);display:none">Sin datos de contacto aún — haz clic en "Editar" para añadirlos.</div>
         </div>
         <button class="tb" onclick="habilitarEdicionEmpresa()" style="width:100%;justify-content:center;padding:8px">✏ Editar datos</button>
+        <button class="tb" id="btn-migrar-grampas" onclick="ejecutarMigracionGrampas()" style="width:100%;justify-content:center;padding:8px;margin-top:.75rem;background:var(--bg-soft);color:var(--muted)">🔄 Actualizar cotizaciones (omitir grampas)</button>
       </div>
 
       <!-- VISTA DE EDICIÓN (bloqueada por defecto si hay datos) -->
@@ -2461,6 +2462,36 @@ function abrirComparador(){
 
 function cerrarComparador(){
   document.getElementById('modal-comp-overlay').style.display='none';
+}
+
+// ── MIGRACIÓN: ACTUALIZAR COTIZACIONES EXISTENTES ──────────────────
+async function ejecutarMigracionGrampas(){
+  if(!confirm('Esto actualizará todas las cotizaciones guardadas omitiendo grampas de postes de concreto.\n\n¿Continuar?')) return;
+
+  const btn=document.getElementById('btn-migrar-grampas');
+  const textPrev=btn.textContent;
+  btn.disabled=true;
+  btn.textContent='Migrando...';
+
+  if(!(await asegurarPassword())){
+    btn.disabled=false;
+    btn.textContent=textPrev;
+    return;
+  }
+
+  try{
+    const resp=await apiFetch('/api/migrate-grampas', {method:'POST'});
+    btn.textContent='✓ Migración completada';
+    toast(`✓ Cotizaciones actualizadas: ${resp.actualizadas} · Ya migradas: ${resp.migradas}`, true);
+    setTimeout(()=>{
+      btn.disabled=false;
+      btn.textContent=textPrev;
+    }, 2000);
+  }catch(e){
+    manejarErrorApi(e,'migrar');
+    btn.disabled=false;
+    btn.textContent=textPrev;
+  }
 }
 
 // ── PAGO Y COMPROBANTE ────────────────────────────────────────────

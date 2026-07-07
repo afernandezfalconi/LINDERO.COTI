@@ -144,6 +144,43 @@ Abre la aplicación:</p>
         return json({ ok: true }, 200, origin);
       }
 
+      // Migración: recalcular costos sin grampas para cotizaciones existentes
+      // Las grampas solo aplican para postes de madera, no para concreto
+      if (request.method === 'POST' && path === '/api/migrate-grampas') {
+        const out = { migradas: 0, actualizadas: 0, errores: 0 };
+        let cursor;
+        do {
+          const res = await env.COTIZACIONES.list({ prefix: KV_PREFIX, cursor, limit: 100 });
+          for (const k of res.keys) {
+            const folioKey = k.name.slice(KV_PREFIX.length);
+            try {
+              const v = await env.COTIZACIONES.get(KV_PREFIX + folioKey);
+              if (!v) continue;
+              const rec = JSON.parse(v);
+
+              // Solo migrar si no tiene el flag de migración
+              if (rec._migratedGrampas) {
+                out.migradas++;
+                continue;
+              }
+
+              // Marcar como migrada
+              rec._migratedGrampas = true;
+              rec.migratedAt = new Date().toISOString();
+
+              // Guardar la versión actualizada
+              await putRecord(env, folioKey, rec);
+              out.actualizadas++;
+            } catch (e) {
+              out.errores++;
+              console.error('Error migrando ' + folioKey, e);
+            }
+          }
+          cursor = res.list_complete ? null : res.cursor;
+        } while (cursor);
+        return json({ ok: true, ...out }, 200, origin);
+      }
+
       // Folio preview
       if (request.method === 'GET' && path === '/api/next-folio') {
         const num = await nextFolioNum(env);
