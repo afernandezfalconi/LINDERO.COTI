@@ -811,6 +811,20 @@ function irAlHome(){
         <div style="font-size:11px;color:var(--muted);font-family:var(--fm);margin-top:6px">Se aplica al costo total (materiales + mano de obra) antes de mostrar el total final. Déjalo en 0% para cotizar a costo.</div>
       </div>
       <div class="ni" style="margin-top:1rem">El "Total estimado" en el resumen ya incluye este margen. El costo real (sin margen) se muestra por separado como referencia.</div>
+
+      <!-- MODO ALTERNATIVO: EDITAR MONTO TOTAL NEGOCIADO -->
+      <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:.75rem">Alternativa: Si conoces el monto final negociado, ingresa aquí y se calculará automáticamente el porcentaje de utilidad</div>
+        <div class="f">
+          <label>Monto total negociado (opcional)</label>
+          <div style="display:flex;align-items:center;gap:.75rem">
+            <span style="font-size:14px;color:var(--text)">$</span>
+            <input type="number" id="monto-negociado" placeholder="Dejar vacío para usar margen %" min="0" step="0.01" style="flex:1;max-width:200px" onchange="calcularMargenDesdeTotal()">
+            <button class="tb" onclick="limpiarMontoNegociado()" style="padding:6px 12px;font-size:12px">Limpiar</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);font-family:var(--fm);margin-top:6px" id="margen-calculado-txt">—</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1036,6 +1050,7 @@ let pts=[];
 let ok=false;
 let nL=4, conPorton=true, mat='c';
 let cotizacionActualKey=null; // null = cotización nueva; si tiene valor, se edita ese registro
+let costoBase=null; // costo total sin margen, se actualiza en calc()
 
 const COLS=['#e8c84a','#4adb8a','#5b8dee','#f06060','#c97bf5','#f0a830','#40d9c7','#ff8c69','#a8ff78','#ff6b9d'];
 
@@ -1622,6 +1637,7 @@ function calc(){
 
   const parts=[cL,cE,cA,cMO,cO];
   const tot=parts.some(p=>p!==null)?parts.reduce((s,p)=>s+(p||0),0):null;
+  window.costoBase=tot; // guardar para calcularMargenDesdeTotal()
   const pend=parts.filter(p=>p===null).length;
   const margenPct=parseFloat(document.getElementById('margen').value)||0;
   const totConMargen = tot!==null ? tot*(1+margenPct/100) : null;
@@ -1820,6 +1836,10 @@ function recopilarEstado(){
       unitario:eg.unitario
     }));
   }
+
+  // Monto negociado
+  const montoNegociado=document.getElementById('monto-negociado')?.value;
+  if(montoNegociado) estado.montoNegociado=parseFloat(montoNegociado);
 
   return estado;
 }
@@ -2046,6 +2066,11 @@ async function cargarCotizacion(key){
     }else{
       egresos=[];
       renderizarEgresos();
+    }
+
+    // Cargar monto negociado si existe
+    if(data.montoNegociado){
+      document.getElementById('monto-negociado').value=data.montoNegociado;
     }
 
     onDimChange(); // recalcula etiquetas + calc()
@@ -2576,6 +2601,39 @@ function limpiarComprobante(){
   document.getElementById('comprobante-preview').style.display='none';
   document.getElementById('upload-status').textContent='—';
   document.getElementById('file-comprobante').value='';
+}
+
+// ── MONTO NEGOCIADO: CALCULAR MARGEN DESDE TOTAL ──────────────────
+function calcularMargenDesdeTotal(){
+  const montoNegociado=parseFloat(document.getElementById('monto-negociado').value);
+  if(!montoNegociado || montoNegociado<=0){
+    document.getElementById('margen-calculado-txt').textContent='—';
+    return;
+  }
+
+  if(window.costoBase===null || window.costoBase===0){
+    document.getElementById('margen-calculado-txt').textContent='⚠ Falta calcular costo base';
+    return;
+  }
+
+  // Calcular margen: (montoNegociado - costoBase) / costoBase * 100
+  const margenCalculado=((montoNegociado - window.costoBase)/window.costoBase)*100;
+
+  // Actualizar el input de margen
+  document.getElementById('margen').value=Math.round(margenCalculado*10)/10; // redondear a 1 decimal
+
+  // Mostrar info
+  const diferencia=montoNegociado - window.costoBase;
+  document.getElementById('margen-calculado-txt').textContent=`📊 Margen calculado: ${margenCalculado.toFixed(1)}% (+${$m(diferencia)})`;
+
+  // Recalcular todo
+  calc();
+}
+
+function limpiarMontoNegociado(){
+  document.getElementById('monto-negociado').value='';
+  document.getElementById('margen-calculado-txt').textContent='—';
+  calc();
 }
 
 // ── EGRESOS: COSTOS DE MATERIALES ────────────────────────────────────
