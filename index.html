@@ -1614,7 +1614,9 @@ function calc(){
   }
   const pG=fv('p-gp');
   const cFundTotal = (cFundLinea!==null && cFundEsq!==null) ? (cFundLinea + cFundEsq) : null;
-  cO=(pG!==null||cFundTotal!==null)?((pG||0)*Math.ceil(per*0.05)+(cFundTotal||0)):null;
+  // Grampas: solo para postes de madera. Postes de concreto prefabricados ya vienen con grampas incluidas
+  const cGrampas = mat==='w' && pG!==null ? pG*Math.ceil(per*0.05) : 0;
+  cO=(pG!==null||cFundTotal!==null)?((cGrampas)+(cFundTotal||0)):null;
   document.getElementById('p-fu-disp').textContent = $m(cFundTotal);
 
   const parts=[cL,cE,cA,cMO,cO];
@@ -2414,7 +2416,9 @@ function calcularEscenario(matX, modoX){
     cFundTotal=(pl*volNetoLinea*5.2*costoSaco)+(pe*volNetoEsq*5.2*costoSaco);
   }
   const pG=fv('p-gp');
-  const cO=(pG!==null||cFundTotal!==null)?((pG||0)*Math.ceil(per*0.05)+(cFundTotal||0)):null;
+  // Grampas: solo para postes de madera. Postes de concreto prefabricados ya vienen con grampas incluidas
+  const cGrampas = matX==='w' && pG!==null ? pG*Math.ceil(per*0.05) : 0;
+  const cO=(pG!==null||cFundTotal!==null)?((cGrampas)+(cFundTotal||0)):null;
 
   const parts=[cL,cE,cA,cMO,cO];
   const tot=parts.some(p=>p!==null)?parts.reduce((s,p)=>s+(p||0),0):null;
