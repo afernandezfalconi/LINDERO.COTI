@@ -2458,7 +2458,7 @@ function cargarConfigEmpresaInicial(){
 }
 
 // ── EXPORTAR / IMPRIMIR COTIZACIÓN CON MEMBRETE ───────────────────
-function imprimirCotizacion(){
+async function imprimirCotizacion(tipo){
   let cfg={};
   try{ cfg=JSON.parse(localStorage.getItem(EMP_STORAGE_KEY)||'{}'); }catch(e){}
 
@@ -2522,20 +2522,60 @@ function imprimirCotizacion(){
 
   // Mostrar/ocultar desglose de costos según tipo
   const desgloseTable=document.getElementById('ph-desglose-costos');
+  cerrarDialogoExportar();
   if(tipo==='cliente'){
     desgloseTable.style.display='none';
-    // Mostrar URL de landing page para compartir
-    const folio = document.getElementById('cli-f').value || 'COT-000';
-    const landingURL = 'https://lindero-coti-api.lindero-coti.workers.dev/landing/' + encodeURIComponent(folio);
-    setTimeout(() => {
-      alert('📋 LANDING PAGE PARA COMPARTIR:\n\n' + landingURL + '\n\nCopia esta URL y comparte con tu cliente.');
-    }, 500);
+    await generarLinkLanding();   // genera el link para compartir (+ botón para descargar PDF)
   } else {
     desgloseTable.style.display='table';
+    window.print();
   }
+}
 
-  cerrarDialogoExportar();
-  window.print();
+// Genera (o regenera) el link de landing pública para la cotización actual
+async function generarLinkLanding(){
+  const folio=(document.getElementById('cli-f').value||'').trim();
+  if(!cotizacionActualKey || !folio){
+    alert('⚠️ Primero guarda la cotización (botón "Guardar cotización") para poder generar el link para compartir con el cliente.');
+    return;
+  }
+  try{
+    const data=await apiFetch('/api/landing', {method:'POST', body:JSON.stringify({folio})});
+    mostrarLinkLanding(data.url);
+  }catch(e){
+    alert('No se pudo generar el link para compartir: '+((e&&e.message)||e));
+  }
+}
+
+function mostrarLinkLanding(url){
+  let ov=document.getElementById('modal-landing');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='modal-landing';
+    ov.style.cssText='display:flex;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1200;align-items:center;justify-content:center';
+    ov.innerHTML=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:1.5rem;max-width:520px;width:92%">
+      <h3 style="font-family:var(--fh);font-weight:600;margin-bottom:.4rem"><i class="ti ti-share" aria-hidden="true"></i> Link para compartir</h3>
+      <p style="font-size:12px;color:var(--muted);font-family:var(--fm);margin-bottom:1rem">Envía este enlace a tu cliente. Muestra la cotización sin tus costos internos. Vigencia 30 días.</p>
+      <input id="landing-url" type="text" readonly onclick="this.select()" style="width:100%;margin-bottom:1rem" value="">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btnp" style="flex:1;min-width:120px" onclick="copiarLinkLanding()"><i class="ti ti-copy" aria-hidden="true"></i> Copiar</button>
+        <button class="btnp ghost" style="flex:1;min-width:120px" onclick="window.open(document.getElementById('landing-url').value,'_blank')"><i class="ti ti-external-link" aria-hidden="true"></i> Abrir</button>
+        <button class="btnp ghost" style="flex:1;min-width:120px" onclick="window.print()"><i class="ti ti-printer" aria-hidden="true"></i> PDF</button>
+      </div>
+      <button class="btnp ghost" style="width:100%;margin-top:.75rem" onclick="document.getElementById('modal-landing').style.display='none'">Cerrar</button>
+    </div>`;
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  document.getElementById('landing-url').value=url;
+  try{ navigator.clipboard.writeText(url); toast('✓ Link copiado al portapapeles', true); }catch(e){}
+}
+
+function copiarLinkLanding(){
+  const i=document.getElementById('landing-url'); if(!i) return;
+  i.select();
+  try{ navigator.clipboard.writeText(i.value); }catch(e){ try{ document.execCommand('copy'); }catch(_){} }
+  toast('✓ Link copiado', true);
 }
 
 function abrirDialogoExportar(){

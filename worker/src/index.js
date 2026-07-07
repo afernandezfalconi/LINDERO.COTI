@@ -719,6 +719,21 @@ export default {
         return json({ items: out.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)) }, 200, origin);
       }
 
+      // ── LANDING PÚBLICA: generar link para compartir una cotización ──
+      if (request.method === 'POST' && path === '/api/landing') {
+        const body = await request.json();
+        const folio = (body.folio || '').trim();
+        if (!folio) return json({ error: 'Folio requerido' }, 400, origin);
+
+        const rec = await env.COTIZACIONES.get(KV_PREFIX + folio);
+        if (!rec) return json({ error: 'Cotización no encontrada. Guárdala antes de compartir.' }, 404, origin);
+
+        const token = await generateLandingToken(env, folio);
+        const url = new URL(request.url).origin + '/landing/' + token;
+        await createAuditLog(env, user, 'CREATE_LANDING', folio);
+        return json({ token, url }, 200, origin);
+      }
+
       // ── GESTIÓN DE USUARIOS (solo admin) ─────────────────────────────
       if (path.startsWith('/api/users') && user.email !== ADMIN_EMAIL) {
         return json({ error: 'Solo admin' }, 403, origin);
