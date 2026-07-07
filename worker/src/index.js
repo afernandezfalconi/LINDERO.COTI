@@ -194,6 +194,61 @@ Abre la aplicación:</p>
         return json({ id, record: rec }, 200, origin);
       }
 
+      // Actualizar estado de pago + comprobante
+      if (request.method === 'POST' && mId && path.endsWith('/pago')) {
+        const id = decodeURIComponent(mId[1]);
+        const existing = await env.COTIZACIONES.get(KV_PREFIX + id);
+        if (!existing) return json({ error: 'No encontrada' }, 404, origin);
+        const prev = JSON.parse(existing);
+        const body = await request.json();
+
+        // Validar tamaño del comprobante si viene en base64
+        if (body.pago && body.pago.comprobante) {
+          const b64 = body.pago.comprobante;
+          const bytes = Buffer.byteLength(b64, 'utf8');
+          const mb = bytes / (1024 * 1024);
+          if (mb > 5) {
+            return json({ error: `Comprobante muy grande: ${mb.toFixed(2)}MB (máx 5MB)` }, 400, origin);
+          }
+        }
+
+        const rec = { ...prev };
+        rec.pago = { ...prev.pago, ...body.pago };
+        rec.actualizadoEn = new Date().toISOString();
+        await putRecord(env, id, rec);
+        return json({ id, record: rec }, 200, origin);
+      }
+
+      // Descargar comprobante
+      if (request.method === 'GET' && mId && path.endsWith('/voucher')) {
+        const id = decodeURIComponent(mId[1]);
+        const existing = await env.COTIZACIONES.get(KV_PREFIX + id);
+        if (!existing) return json({ error: 'No encontrada' }, 404, origin);
+        const rec = JSON.parse(existing);
+        if (!rec.pago || !rec.pago.comprobante) {
+          return json({ error: 'Sin comprobante' }, 404, origin);
+        }
+
+        const b64 = rec.pago.comprobante;
+        const match = b64.match(/^data:([^;]+);base64,(.+)$/);
+        const mimeType = match ? match[1] : 'application/octet-stream';
+        const data = match ? match[2] : b64;
+
+        try {
+          const binary = Buffer.from(data, 'base64');
+          return new Response(binary, {
+            status: 200,
+            headers: {
+              'Content-Type': mimeType,
+              'Content-Disposition': `attachment; filename="${rec.resumenFolio}-voucher"`,
+              ...corsHeaders(origin),
+            },
+          });
+        } catch (e) {
+          return json({ error: 'Error al decodificar comprobante' }, 500, origin);
+        }
+      }
+
       return json({ error: 'Ruta no encontrada' }, 404, origin);
     } catch (e) {
       return json({ error: String((e && e.message) || e) }, 500, origin);

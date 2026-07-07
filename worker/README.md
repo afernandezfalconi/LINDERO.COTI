@@ -20,6 +20,8 @@ dispositivo. El **folio es global** y lo asigna el servidor (consecutivo, único
 | GET | `/api/cotizaciones/:id` | Registro completo |
 | POST | `/api/cotizaciones` | Crear (asigna folio nuevo) |
 | PUT | `/api/cotizaciones/:id` | Actualizar (conserva folio). `{"estatus":"cancelada"}` = cancelar |
+| POST | `/api/cotizaciones/:id/pago` | Actualizar pago + comprobante. Body: `{"pago":{"pagado":true,"fechaPago":"2026-07-06","comprobante":"data:...","montoRecibido":15000,"notas":"…"}}` |
+| GET | `/api/cotizaciones/:id/voucher` | Descargar comprobante (PDF/imagen) |
 | POST | `/api/change-password` | Cambia la contraseña del equipo. Body `{"nueva":"…"}` (min 4) |
 
 Todas menos `/api/health` requieren `X-App-Password`.
