@@ -144,6 +144,8 @@ select option{background:var(--bg3)}
 .btnp{width:100%;background:var(--accent);color:#000;font-family:var(--fh);font-size:.95rem;font-weight:700;border:none;border-radius:8px;padding:.85rem;cursor:pointer;margin-top:1rem;transition:background .15s,transform .1s}
 .btnp:hover{background:var(--accent2)}
 .btnp:active{transform:scale(.98)}
+.btnp.ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border);box-shadow:none}
+.btnp.ghost:hover{background:var(--bg2);border-color:var(--border2)}
 .notic{font-size:11px;color:var(--muted);font-family:var(--fm);text-align:center;margin-top:.75rem;line-height:1.5}
 
 @media(max-width:900px){
@@ -3205,7 +3207,7 @@ function crearPanelAdmin(){
       </div>
       <button class="btnp" onclick="agregarUsuario()" style="margin-bottom:2rem;background:var(--accent)">➕ Agregar Usuario</button>
 
-      <button class="btnp" style="width:100%;background:var(--bg3);border:1px solid var(--border)" onclick="cerrarPanelAdmin()">Cerrar</button>
+      <button class="btnp ghost" style="width:100%" onclick="cerrarPanelAdmin()">Cerrar</button>
     </div>
   </div>`;
   document.body.insertAdjacentHTML('beforeend', modalHTML);
@@ -3321,7 +3323,7 @@ function crearPanelAuditoria(){
         <tbody id="audit-tbody"></tbody>
       </table>
 
-      <button class="btnp" style="width:100%;margin-top:1rem;background:var(--bg3);border:1px solid var(--border)" onclick="cerrarAuditoria()">Cerrar</button>
+      <button class="btnp ghost" style="width:100%;margin-top:1rem" onclick="cerrarAuditoria()">Cerrar</button>
     </div>
   </div>`;
   document.body.insertAdjacentHTML('beforeend', modalHTML);
@@ -3406,7 +3408,7 @@ function crearPanelProveedores(){
         <p style="color:var(--muted)">Cargando...</p>
       </div>
 
-      <button class="btnp" style="width:100%;margin-top:2rem;background:var(--bg3);border:1px solid var(--border)" onclick="cerrarProveedores()">Cerrar</button>
+      <button class="btnp ghost" style="width:100%;margin-top:2rem" onclick="cerrarProveedores()">Cerrar</button>
     </div>
   </div>`;
   document.body.insertAdjacentHTML('beforeend', modalHTML);
@@ -3714,7 +3716,7 @@ function abrirRegistroPago(){
 
       <div style="display:flex;gap:0.5rem">
         <button class="btnp ok" onclick="guardarPago()" style="flex:1">✓ Registrar Pago</button>
-        <button class="btnp" onclick="cerrarRegistroPago()" style="flex:1;background:var(--bg3)">Cancelar</button>
+        <button class="btnp ghost" onclick="cerrarRegistroPago()" style="flex:1">Cancelar</button>
       </div>
     </div>
   </div>`;
