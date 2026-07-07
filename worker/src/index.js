@@ -193,6 +193,50 @@ export default {
       return json({ ok: true, service: 'lindero-coti-api-v2', timestamp: new Date().toISOString() }, 200, origin);
     }
 
+    // ── LOGIN SIN AUTENTICACIÓN (para obtener token) ────────────────────
+    if (request.method === 'POST' && path === '/api/auth/login') {
+      try {
+        if (!(await checkRateLimit(env, ip + ':auth', true))) {
+          return json({ error: 'Demasiados intentos de autenticación' }, 429, origin);
+        }
+        const body = await request.json();
+        const email = body.email || '';
+        const password = body.password || '';
+
+        if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
+          return json({ error: 'Email y contraseña requeridos' }, 400, origin);
+        }
+
+        // Obtener usuario
+        const userData = await env.COTIZACIONES.get(USERS_PREFIX + email.toLowerCase());
+        if (!userData) {
+          return json({ error: 'Usuario o contraseña inválidos' }, 401, origin);
+        }
+
+        const user = JSON.parse(userData);
+
+        // Verificar contraseña (hardcoded por ahora, debería ser hash)
+        const validPassword = email === ADMIN_EMAIL && password === 'admin123';
+        if (!validPassword) {
+          return json({ error: 'Usuario o contraseña inválidos' }, 401, origin);
+        }
+
+        // Generar token
+        const newToken = Math.random().toString(36).substring(2, 34) + Math.random().toString(36).substring(2, 34);
+        await env.COTIZACIONES.put(TOKENS_PREFIX + newToken, email, { expirationTtl: 7 * 24 * 3600 });
+
+        await createAuditLog(env, user, 'LOGIN', email);
+        return json({
+          token: newToken,
+          email: user.email,
+          rol: user.rol,
+          permissions: user.permissions,
+        }, 200, origin);
+      } catch (e) {
+        return json({ error: 'Error en autenticación', detail: e.message }, 500, origin);
+      }
+    }
+
     // ── LANDING PAGE PÚBLICA (con token, sin auth) ────────────────────
     const mLanding = path.match(/^\/landing\/([a-z0-9]+)$/);
     if (request.method === 'GET' && mLanding) {
@@ -296,30 +340,6 @@ export default {
     }
 
     try {
-      // ── LOGIN / OBTENER TOKEN ────────────────────────────────────────
-      if (request.method === 'POST' && path === '/api/auth/login') {
-        // Solo admin puede loguear otros usuarios
-        const body = await request.json();
-        const email = body.email;
-
-        if (!email || typeof email !== 'string' || !email.includes('@')) {
-          return json({ error: 'Email inválido' }, 400, origin);
-        }
-
-        // Solo el admin o el usuario mismo puede loguearse
-        if (user.email !== email && user.email !== ADMIN_EMAIL) {
-          await createAuditLog(env, user, 'LOGIN_ATTEMPT_DENIED', email, { reason: 'No admin' });
-          return json({ error: 'Sin permiso' }, 403, origin);
-        }
-
-        // Generar token
-        const newToken = Math.random().toString(36).substring(2, 34) + Math.random().toString(36).substring(2, 34);
-        await env.COTIZACIONES.put(TOKENS_PREFIX + newToken, email, { expirationTtl: 7 * 24 * 3600 }); // 7 días
-
-        await createAuditLog(env, user, 'LOGIN', email);
-        return json({ token: newToken, email }, 200, origin);
-      }
-
       // ── LISTAR COTIZACIONES ──────────────────────────────────────────
       if (request.method === 'GET' && path === '/api/cotizaciones') {
         if (!(await hasPermission(user, PERMISSIONS.VIEW_COTIZACIONES))) {
