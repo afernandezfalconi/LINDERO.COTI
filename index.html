@@ -961,10 +961,32 @@ function irAlHome(){
   <div class="rtot"><div class="rtl">Total estimado</div><div class="rtv" id="r-to">$—</div></div>
   <div style="font-size:11px;color:var(--red);font-family:var(--fm);margin-top:.3rem;text-align:right" id="r-pd"></div>
   <button class="btnp" style="background:var(--bg3);color:var(--accent);border:1px solid var(--accent)" onclick="abrirComparador()">⚖ Comparar escenarios</button>
-  <button class="btnp" onclick="imprimirCotizacion()">Imprimir / exportar cotización</button>
+  <button class="btnp" onclick="abrirDialogoExportar()">Imprimir / exportar cotización</button>
   <div class="notic">Campos en amarillo = precio pendiente. El total se recalcula solo.</div>
 </div>
 </div><!-- /app -->
+
+<!-- MODAL: ELEGIR TIPO DE COTIZACIÓN PARA EXPORTAR -->
+<div id="modal-exportar" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center">
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2rem;max-width:500px;box-shadow:0 10px 40px rgba(0,0,0,0.3)">
+    <h2 style="font-family:var(--fh);font-size:1.3rem;margin-bottom:1.5rem;color:var(--text)">Exportar cotización</h2>
+    <p style="color:var(--muted);margin-bottom:1.5rem">¿Qué versión deseas imprimir?</p>
+
+    <div style="display:grid;gap:1rem;margin-bottom:1.5rem">
+      <button class="btnp" style="background:var(--accent);color:var(--bg);text-align:left;padding:1rem" onclick="imprimirCotizacion('interna')">
+        <strong>📋 Versión Interna</strong>
+        <div style="font-size:12px;color:rgba(255,255,255,0.8);margin-top:0.5rem">Incluye desglose de costos (tus costos reales)</div>
+      </button>
+
+      <button class="btnp" style="background:var(--accent2,#5b8dee);color:white;text-align:left;padding:1rem" onclick="imprimirCotizacion('cliente')">
+        <strong>👤 Versión para Cliente</strong>
+        <div style="font-size:12px;color:rgba(255,255,255,0.8);margin-top:0.5rem">Sin desglose de costos, solo precio final</div>
+      </button>
+    </div>
+
+    <button class="btnp" style="background:var(--bg3);color:var(--text);width:100%;border:1px solid var(--border)" onclick="cerrarDialogoExportar()">Cancelar</button>
+  </div>
+</div>
 
 <!-- PLANTILLA DE IMPRESIÓN CON MEMBRETE — oculta en pantalla, visible solo al imprimir -->
 <div id="print-letterhead" style="display:none">
@@ -1011,7 +1033,7 @@ function irAlHome(){
     <tr><td>Mano de obra</td><td id="ph-mo">—</td></tr>
   </table>
 
-  <table class="ph-table">
+  <table class="ph-table" id="ph-desglose-costos">
     <tr><th colspan="2">Desglose de costos</th></tr>
     <tr><td>Postes de línea</td><td id="ph-c-linea">—</td></tr>
     <tr><td>Postes esquineros</td><td id="ph-c-esq">—</td></tr>
@@ -2385,7 +2407,24 @@ function imprimirCotizacion(){
 
   document.getElementById('ph-total').textContent=document.getElementById('r-to').textContent;
 
+  // Mostrar/ocultar desglose de costos según tipo
+  const desgloseTable=document.getElementById('ph-desglose-costos');
+  if(tipo==='cliente'){
+    desgloseTable.style.display='none';
+  } else {
+    desgloseTable.style.display='table';
+  }
+
+  cerrarDialogoExportar();
   window.print();
+}
+
+function abrirDialogoExportar(){
+  document.getElementById('modal-exportar').style.display='flex';
+}
+
+function cerrarDialogoExportar(){
+  document.getElementById('modal-exportar').style.display='none';
 }
 
 // ── COMPARADOR DE ESCENARIOS ──────────────────────────────────────
