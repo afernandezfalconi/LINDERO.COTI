@@ -941,7 +941,7 @@ function irAlHome(){
     <div class="rr"><span class="l">Alambre (uso exacto)</span><span class="v" id="r-ca">—</span></div>
     <div class="rr" id="r-ca-ref-row" style="display:none"><span class="l" style="font-size:11px">↳ comprando rollos completos</span><span class="v" id="r-ca-ref" style="font-size:11px;color:var(--muted)">—</span></div>
     <div class="rr"><span class="l">Mano de obra</span><span class="v" id="r-cm">—</span></div>
-    <div class="rr"><span class="l">Grampas / fundición</span><span class="v" id="r-co">—</span></div>
+    <div class="rr"><span class="l" id="r-co-lbl">Fundición de postes</span><span class="v" id="r-co">—</span></div>
   </div>
   <hr class="rdiv">
   <div class="rs">
@@ -1065,7 +1065,7 @@ function irAlHome(){
     <tr><td>Postes esquineros</td><td id="ph-c-esq">—</td></tr>
     <tr><td>Alambre de púa</td><td id="ph-c-alambre">—</td></tr>
     <tr><td>Mano de obra</td><td id="ph-c-mo">—</td></tr>
-    <tr><td>Grampas / fundición</td><td id="ph-c-otros">—</td></tr>
+    <tr><td id="ph-c-otros-lbl">Fundición de postes</td><td id="ph-c-otros">—</td></tr>
     <tr><td>Costo total (sin margen)</td><td id="ph-c-base">—</td></tr>
     <tr id="ph-margen-row" style="display:none"><td>Margen de utilidad</td><td id="ph-c-margen">—</td></tr>
   </table>
@@ -1724,6 +1724,8 @@ function calc(){
   }
   document.getElementById('r-cm').textContent=$m(cMO);
   document.getElementById('r-co').textContent=$m(cO);
+  // Etiqueta dinámica: solo dice "Grampas" cuando de verdad aplican (madera fabricada en obra)
+  document.getElementById('r-co-lbl').textContent = cGrampas>0 ? 'Grampas + fundición' : 'Fundición de postes';
   document.getElementById('r-costo-base').textContent=tot!==null?$m(tot):'$—';
   if(tot!==null && margenPct>0){
     document.getElementById('r-margen-row').style.display='flex';
@@ -2509,6 +2511,7 @@ async function imprimirCotizacion(tipo){
   document.getElementById('ph-c-alambre').textContent=document.getElementById('r-ca').textContent;
   document.getElementById('ph-c-mo').textContent=document.getElementById('r-cm').textContent;
   document.getElementById('ph-c-otros').textContent=document.getElementById('r-co').textContent;
+  document.getElementById('ph-c-otros-lbl').textContent=document.getElementById('r-co-lbl').textContent;
   document.getElementById('ph-c-base').textContent=document.getElementById('r-costo-base').textContent;
 
   if(document.getElementById('r-margen-row').style.display!=='none'){
