@@ -3132,8 +3132,18 @@ let currentUser=null;
 let userToken=null;
 let inactivityTimer=null;
 
-function obtenerUsuarioActual(){return JSON.parse(sessionStorage.getItem('user')||'{}');}
-function obtenerToken(){return sessionStorage.getItem('token')||'';}
+// ── AUTENTICACIÓN (consolidada) ──
+function obtenerToken(){
+  return sessionStorage.getItem('token')||'';
+}
+
+function obtenerUsuarioActual(){
+  try{
+    return JSON.parse(sessionStorage.getItem('user')||'{}');
+  }catch(e){
+    return {}; // fallback seguro si JSON es inválido
+  }
+}
 
 function guardarSesion(token, user){
   sessionStorage.setItem('token', token);
