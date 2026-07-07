@@ -221,6 +221,11 @@ async function updateProvider(env, providerId, updates) {
   if (!provider) return null;
 
   const updated = { ...provider, ...updates, ultimaActualizacion: new Date().toISOString() };
+  // Si se editaron los materiales, recomputar precio primario y categoría
+  if (Array.isArray(updates.materiales)) {
+    updated.precioActual = updates.materiales.length ? (updates.materiales[0].precio || 0) : 0;
+    updated.categoria = updates.materiales.length > 1 ? 'varios' : (updates.materiales[0] ? updates.materiales[0].tipo : 'otros');
+  }
   await env.COTIZACIONES.put(PROVIDERS_PREFIX + providerId, JSON.stringify(updated));
   return updated;
 }

@@ -3582,7 +3582,7 @@ async function cargarProveedores(){
         </div>
 
         <div style="display:flex;gap:0.5rem;margin-top:1rem">
-          <button class="btnp" onclick="mostrarActualizarPrecio(${p.id})" style="flex:1;padding:0.5rem;font-size:12px">📈 Actualizar Precio</button>
+          <button class="btnp" onclick="abrirEditarProveedor('${p.id}')" style="flex:1;padding:0.5rem;font-size:12px"><i class="ti ti-edit" aria-hidden="true"></i> Editar</button>
           <button class="btnp" onclick="mostrarGraficoVolatilidad(${p.id})" style="flex:1;padding:0.5rem;font-size:12px">📊 Gráfico</button>
           <button class="btnp" onclick="eliminarProveedor(${p.id})" style="flex:1;padding:0.5rem;background:#e74c3c;font-size:12px">🗑️ Eliminar</button>
         </div>
@@ -3639,6 +3639,100 @@ async function agregarProveedor(){
 
     await cargarProveedores();
     toast('✓ Proveedor creado', true);
+  }catch(e){
+    alert('Error: '+e.message);
+  }
+}
+
+// ── EDITAR PROVEEDOR (multi-material) ──────────────────────────────
+function abrirEditarProveedor(id){
+  const p=proveedoresGlobal.find(x=>String(x.id)===String(id));
+  if(!p){ alert('Proveedor no encontrado'); return; }
+  const ex=document.getElementById('edit-prov-modal'); if(ex) ex.remove();
+
+  const rows=CATALOGO_MATERIALES.map(m=>{
+    const extra=m.alambre?`
+      <input type="text" id="emat-${m.tipo}-marca" placeholder="Marca" style="width:110px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">
+      <input type="number" step="0.01" id="emat-${m.tipo}-metros" placeholder="m/rollo" style="width:88px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">
+      <input type="number" step="0.01" id="emat-${m.tipo}-kg" placeholder="kg/rollo" style="width:88px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">`:'';
+    return `<div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.4rem;flex-wrap:wrap">
+      <label style="flex:1;min-width:180px;font-size:13px;color:var(--text)">${m.label}</label>
+      <div class="ip" style="width:120px"><span>$</span><input type="number" step="0.01" id="emat-${m.tipo}" placeholder="—" style="width:120px"></div>
+      ${extra}
+    </div>`;
+  }).join('');
+
+  const html=`<div id="edit-prov-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10001">
+    <div style="background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:8px;max-width:760px;width:92%;max-height:90vh;overflow:auto;padding:1.5rem">
+      <h3 style="margin-top:0"><i class="ti ti-edit" aria-hidden="true"></i> Editar proveedor</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <input id="edit-prov-nombre" type="text" placeholder="Nombre" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+        <input id="edit-prov-telefono" type="text" placeholder="Teléfono" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+        <input id="edit-prov-email" type="email" placeholder="Email" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+        <input id="edit-prov-notas" type="text" placeholder="Notas" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+      </div>
+      <div style="font-size:12px;color:var(--muted);font-family:var(--fm);margin-bottom:.6rem">Actualiza los precios que necesites. Deja en blanco un material para quitarlo del proveedor.</div>
+      ${rows}
+      <div style="display:flex;gap:.5rem;margin-top:1rem">
+        <button class="btnp ok" style="flex:1" onclick="guardarEdicionProveedor('${p.id}')">Guardar cambios</button>
+        <button class="btnp ghost" style="flex:1" onclick="document.getElementById('edit-prov-modal').remove()">Cancelar</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  // Pre-llenar por JS (evita problemas de escaping en el HTML)
+  document.getElementById('edit-prov-nombre').value=p.nombre||'';
+  document.getElementById('edit-prov-telefono').value=(p.contacto&&p.contacto.telefono)||'';
+  document.getElementById('edit-prov-email').value=(p.contacto&&p.contacto.email)||'';
+  document.getElementById('edit-prov-notas').value=p.notas||'';
+  (p.materiales||[]).forEach(mat=>{
+    const el=document.getElementById('emat-'+mat.tipo); if(el) el.value=mat.precio;
+    if(mat.tipo==='alambre'){
+      const em=document.getElementById('emat-alambre-marca'); if(em) em.value=mat.marca||'';
+      const emet=document.getElementById('emat-alambre-metros'); if(emet&&mat.metrosPorRollo!=null) emet.value=mat.metrosPorRollo;
+      const ekg=document.getElementById('emat-alambre-kg'); if(ekg&&mat.kgPorRollo!=null) ekg.value=mat.kgPorRollo;
+    }
+  });
+}
+
+async function guardarEdicionProveedor(id){
+  const nombre=document.getElementById('edit-prov-nombre').value.trim();
+  const telefono=document.getElementById('edit-prov-telefono').value.trim();
+  const email=document.getElementById('edit-prov-email').value.trim();
+  const notas=document.getElementById('edit-prov-notas').value.trim();
+  if(!nombre){ alert('El nombre no puede quedar vacío'); return; }
+
+  const materiales=[];
+  CATALOGO_MATERIALES.forEach(m=>{
+    const precio=parseFloat((document.getElementById('emat-'+m.tipo)||{}).value);
+    if(!isNaN(precio) && precio>0){
+      const item={tipo:m.tipo, precio};
+      if(m.alambre){
+        item.marca=((document.getElementById('emat-'+m.tipo+'-marca')||{}).value||'').trim();
+        const met=parseFloat((document.getElementById('emat-'+m.tipo+'-metros')||{}).value);
+        const kg=parseFloat((document.getElementById('emat-'+m.tipo+'-kg')||{}).value);
+        item.metrosPorRollo=isNaN(met)?null:met;
+        item.kgPorRollo=isNaN(kg)?null:kg;
+      }
+      materiales.push(item);
+    }
+  });
+  if(materiales.length===0){ alert('El proveedor debe vender al menos un material'); return; }
+
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  try{
+    const resp=await fetch(API_BASE+'/api/providers/'+encodeURIComponent(id), {
+      method:'PUT',
+      headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
+      body:JSON.stringify({nombre,notas,contacto:{telefono,email},materiales})
+    });
+    if(!resp.ok){ const e=await resp.json().catch(()=>({})); throw new Error(e.error||('HTTP '+resp.status)); }
+    const modal=document.getElementById('edit-prov-modal'); if(modal) modal.remove();
+    await cargarProveedores();
+    if(typeof refrescarSelectorProveedores==='function') refrescarSelectorProveedores();
+    toast('✓ Proveedor actualizado', true);
   }catch(e){
     alert('Error: '+e.message);
   }
