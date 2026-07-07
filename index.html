@@ -2203,7 +2203,8 @@ const PROV_CAMPOS=['dim-lc-w','dim-lc-h','dim-lw-d','dim-lw-h','dim-e-w','dim-e-
   'p-lc','p-lw','p-e1','p-e2','p-ce','p-ar','p-gr','p-va','p-al','p-pw','m-pw','p-gp'];
 const PROV_STORAGE_PREFIX='lindero_proveedor:';
 
-function getProveedores(){
+// ── PROVEEDORES - Carga desde API + localStorage (fallback) ────────────
+function getProveedoresLocal(){
   const out={};
   Object.keys(localStorage).filter(k=>k.startsWith(PROV_STORAGE_PREFIX)).forEach(k=>{
     try{ out[k.replace(PROV_STORAGE_PREFIX,'')]=JSON.parse(localStorage.getItem(k)); }catch(e){}
@@ -2211,15 +2212,47 @@ function getProveedores(){
   return out;
 }
 
-function refrescarSelectorProveedores(seleccionar){
+async function refrescarSelectorProveedores(seleccionar){
   const sel=document.getElementById('sel-proveedor');
-  const provs=getProveedores();
   sel.innerHTML='<option value="">— selecciona un proveedor —</option>';
-  Object.keys(provs).sort().forEach(nombre=>{
-    const opt=document.createElement('option');
-    opt.value=nombre; opt.textContent=nombre;
-    sel.appendChild(opt);
-  });
+
+  // Intentar cargar del API
+  const token=obtenerToken();
+  if(token){
+    try{
+      const user=obtenerUsuarioActual();
+      const resp=await fetch(API_BASE+'/api/providers', {
+        headers:{'X-Auth-Token':token,'X-User-Email':user.email}
+      });
+      if(resp.ok){
+        const data=await resp.json();
+        (data.items||[]).forEach(p=>{
+          const opt=document.createElement('option');
+          opt.value=p.id;
+          opt.textContent=`${p.nombre} ($${p.precioActual}) - ${p.categoria}`;
+          opt.dataset.providerId=p.id;
+          opt.dataset.providerData=JSON.stringify(p);
+          sel.appendChild(opt);
+        });
+      }
+    }catch(e){
+      console.warn('No se pudo cargar proveedores del API:', e);
+    }
+  }
+
+  // Fallback: cargar del localStorage
+  const provsLocal=getProveedoresLocal();
+  if(Object.keys(provsLocal).length>0){
+    if(sel.children.length>1) sel.innerHTML+='<optgroup label="Guardados localmente">';
+    Object.keys(provsLocal).sort().forEach(nombre=>{
+      const opt=document.createElement('option');
+      opt.value='local:'+nombre;
+      opt.textContent=nombre+' (local)';
+      opt.dataset.isLocal='true';
+      sel.appendChild(opt);
+    });
+  }
+
   if(seleccionar) sel.value=seleccionar;
   document.getElementById('btn-del-proveedor').disabled = !sel.value;
 }
@@ -2243,19 +2276,44 @@ function abrirGuardarProveedor(){
   }
 }
 
-function cargarProveedor(){
-  const nombre=document.getElementById('sel-proveedor').value;
-  document.getElementById('btn-del-proveedor').disabled=!nombre;
-  if(!nombre) return;
+async function cargarProveedor(){
+  const sel=document.getElementById('sel-proveedor');
+  const valor=sel.value;
+  document.getElementById('btn-del-proveedor').disabled=!valor;
+  if(!valor) return;
+
   try{
-    const datos=JSON.parse(localStorage.getItem(PROV_STORAGE_PREFIX+nombre));
+    let datos;
+
+    if(valor.startsWith('local:')){
+      // Cargar del localStorage
+      const nombre=valor.replace('local:','');
+      datos=JSON.parse(localStorage.getItem(PROV_STORAGE_PREFIX+nombre));
+    }else{
+      // Cargar del API
+      const option=sel.querySelector(`option[value="${valor}"]`);
+      if(option.dataset.providerData){
+        const provider=JSON.parse(option.dataset.providerData);
+        // Mapear precios del proveedor a campos
+        datos={};
+        if(provider.precioActual){
+          // Usar precio actual para postes (default)
+          datos['p-lc']=provider.precioActual;
+          datos['p-lw']=provider.precioActual;
+          datos['p-e1']=provider.precioActual;
+          datos['p-e2']=provider.precioActual;
+        }
+      }
+    }
+
     if(!datos) return;
     PROV_CAMPOS.forEach(id=>{
       const el=document.getElementById(id);
       if(el && datos[id]!==undefined && datos[id]!=='') el.value=datos[id];
     });
-    onDimChange(); // recalcula etiquetas + calc()
-    toast('✓ Precios de "'+nombre+'" cargados', true);
+    onDimChange();
+    const nombreProveedor=sel.options[sel.selectedIndex].text;
+    toast('✓ Precios de "'+nombreProveedor+'" cargados', true);
   }catch(e){
     console.error(e);
     toast('Error al cargar proveedor: '+e.message, false);
@@ -2263,12 +2321,19 @@ function cargarProveedor(){
 }
 
 function eliminarProveedorActual(){
-  const nombre=document.getElementById('sel-proveedor').value;
-  if(!nombre) return;
-  if(!confirm('¿Eliminar el proveedor "'+nombre+'" guardado? Esta acción no se puede deshacer.')) return;
-  localStorage.removeItem(PROV_STORAGE_PREFIX+nombre);
-  refrescarSelectorProveedores('');
-  toast('Proveedor eliminado', true);
+  const sel=document.getElementById('sel-proveedor');
+  const valor=sel.value;
+  if(!valor) return;
+
+  if(valor.startsWith('local:')){
+    const nombre=valor.replace('local:','');
+    if(!confirm('¿Eliminar el proveedor "'+nombre+'" guardado? Esta acción no se puede deshacer.')) return;
+    localStorage.removeItem(PROV_STORAGE_PREFIX+nombre);
+    refrescarSelectorProveedores('');
+    toast('Proveedor eliminado', true);
+  }else{
+    alert('Solo puedes eliminar proveedores guardados localmente. Para eliminar de la base de datos central, usa la sección de Proveedores.');
+  }
 }
 
 // ── DATOS DE EMPRESA (membrete) ───────────────────────────────────
