@@ -3226,7 +3226,7 @@ async function cargarListaUsuarios(){
         <td style="padding:0.75rem">${u.email}</td>
         <td>${u.rol||'VIEWER'}</td>
         <td>${new Date(u.creadoEn).toLocaleDateString('es-MX')}</td>
-        <td><button onclick="resendToken('${u.email}')" style="font-size:0.8rem;padding:0.3rem 0.6rem">🔑 Token</button></td>
+        <td><button class="tb" onclick="fijarPassword('${u.email}')" style="font-size:0.8rem;padding:0.35rem 0.6rem"><i class="ti ti-key" aria-hidden="true"></i>Contraseña</button> <span title="${u.hasPassword?'Contraseña asignada':'Sin contraseña — usa la inicial'}" style="font-size:0.85rem;color:${u.hasPassword?'var(--accent)':'var(--muted)'}">${u.hasPassword?'●':'○'}</span></td>
       </tr>`;
       tbody.insertAdjacentHTML('beforeend', row);
     });
@@ -3261,8 +3261,24 @@ async function agregarUsuario(){
   }
 }
 
-async function resendToken(email){
-  alert('Token para '+email+': [mostrar en UI]');
+async function fijarPassword(email){
+  const nueva=prompt('Nueva contraseña para '+email+' (mínimo 4 caracteres):');
+  if(nueva===null) return; // cancelado
+  if(nueva.trim().length<4){ alert('La contraseña debe tener al menos 4 caracteres'); return; }
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  try{
+    const resp=await fetch(API_BASE+'/api/users/set-password', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
+      body:JSON.stringify({email, password:nueva.trim()})
+    });
+    if(!resp.ok){ const e=await resp.json().catch(()=>({})); throw new Error(e.error||('HTTP '+resp.status)); }
+    await cargarListaUsuarios();
+    toast('✓ Contraseña asignada a '+email, true);
+  }catch(e){
+    alert('Error: '+e.message);
+  }
 }
 
 // FASE 3: AUDITORÍA

@@ -105,6 +105,23 @@ async function timingSafeCompare(a, b) {
   return diff === 0;
 }
 
+// ── SEGURIDAD: Hash de contraseña (PBKDF2-SHA256, sal aleatoria) ───────
+function bufToHex(buf) {
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function hexToBytes(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
+}
+async function hashPassword(password, saltHex) {
+  const enc = new TextEncoder();
+  const salt = saltHex ? hexToBytes(saltHex) : crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, 256);
+  return { salt: bufToHex(salt), hash: bufToHex(bits) };
+}
+
 // ── USUARIOS Y AUTENTICACIÓN ──────────────────────────────────────────
 async function getUserByToken(env, token) {
   const email = await env.COTIZACIONES.get(TOKENS_PREFIX + token);
@@ -444,8 +461,15 @@ export default {
 
         const user = JSON.parse(userData);
 
-        // Verificar contraseña (hardcoded por ahora, debería ser hash)
-        const validPassword = email === ADMIN_EMAIL && password === 'admin123';
+        // Verificar contraseña: hash por usuario si existe; si no, bootstrap admin
+        let validPassword = false;
+        if (user.passwordHash && user.passwordSalt) {
+          const { hash } = await hashPassword(password, user.passwordSalt);
+          validPassword = await timingSafeCompare(hash, user.passwordHash);
+        } else if (email === ADMIN_EMAIL && password === 'admin123') {
+          // Contraseña inicial del admin hasta que fije la suya propia
+          validPassword = true;
+        }
         if (!validPassword) {
           return json({ error: 'Usuario o contraseña inválidos' }, 401, origin);
         }
@@ -723,6 +747,34 @@ export default {
         return json(userData, 201, origin);
       }
 
+      // Fijar / restablecer la contraseña de un usuario (solo admin)
+      if (request.method === 'POST' && path === '/api/users/set-password') {
+        const body = await request.json();
+        const targetEmail = (body.email || '').toLowerCase();
+        const newPassword = body.password || '';
+
+        if (!targetEmail || typeof newPassword !== 'string' || newPassword.length < 4) {
+          return json({ error: 'Email requerido y contraseña de al menos 4 caracteres' }, 400, origin);
+        }
+
+        const targetData = await env.COTIZACIONES.get(USERS_PREFIX + targetEmail);
+        if (!targetData) {
+          return json({ error: 'Usuario no encontrado' }, 404, origin);
+        }
+
+        const target = JSON.parse(targetData);
+        const { salt, hash } = await hashPassword(newPassword);
+        target.passwordSalt = salt;
+        target.passwordHash = hash;
+        target.passwordSetAt = new Date().toISOString();
+        target.passwordSetBy = user.email;
+
+        await env.COTIZACIONES.put(USERS_PREFIX + targetEmail, JSON.stringify(target));
+        await createAuditLog(env, user, 'SET_PASSWORD', targetEmail);
+
+        return json({ message: 'Contraseña actualizada', email: targetEmail }, 200, origin);
+      }
+
       if (request.method === 'GET' && path === '/api/users') {
         const out = [];
         let cursor;
@@ -730,7 +782,13 @@ export default {
           const res = await env.COTIZACIONES.list({ prefix: USERS_PREFIX, cursor, limit: 50 });
           for (const k of res.keys) {
             const userData = await env.COTIZACIONES.get(k.name);
-            if (userData) out.push(JSON.parse(userData));
+            if (userData) {
+              const u = JSON.parse(userData);
+              u.hasPassword = !!u.passwordHash;
+              delete u.passwordHash;
+              delete u.passwordSalt;
+              out.push(u);
+            }
           }
           cursor = res.list_complete ? null : res.cursor;
         } while (cursor);
