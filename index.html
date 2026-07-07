@@ -19,6 +19,7 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
+  color-scheme:dark;
   --bg:#0e1c18;--bg2:#122720;--bg3:#0a1511;
   --border:#2f5c50;--border2:#428475;
   --accent:#89D7B7;--accent2:#428475;
@@ -887,10 +888,24 @@ function irAlHome(){
 
     <!-- AGREGAR EGRESO -->
     <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem">
-      <input type="text" id="egreso-desc" placeholder="Ej. Postes de concreto 12×12" style="flex:1;min-width:200px;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+      <select id="egreso-material" onchange="seleccionarMaterialEgreso()" style="flex:1;min-width:200px;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+        <option value="">— Elige material —</option>
+        <option data-cost="p-lc">Poste de línea — concreto</option>
+        <option data-cost="p-lw">Poste de línea — madera</option>
+        <option data-cost="p-e1">Poste esquinero — concreto</option>
+        <option data-cost="p-pw">Alambre de púa (por rollo)</option>
+        <option data-cost="p-ce">Cemento (por tonelada)</option>
+        <option data-cost="p-ar">Arena (m³)</option>
+        <option data-cost="p-gr">Grava / piedrín (m³)</option>
+        <option data-cost="p-va">Varilla 3/8&quot; (6 m)</option>
+        <option data-cost="p-al">Alambrón 1/4&quot; (kg)</option>
+        <option data-cost="p-gp">Grampas / grapas (kg)</option>
+        <option value="__otro__">Otro (especificar)…</option>
+      </select>
+      <input type="text" id="egreso-desc" placeholder="Especifica el material" style="display:none;flex:1;min-width:160px;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
       <input type="number" id="egreso-cant" placeholder="Cant." step="0.01" min="0" style="width:100px;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
       <input type="number" id="egreso-unit" placeholder="Costo unit." step="0.01" min="0" style="width:120px;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
-      <button class="tb" onclick="agregarEgreso()" style="padding:0.6rem 1rem">➕ Agregar</button>
+      <button class="tb" onclick="agregarEgreso()" style="padding:0.6rem 1rem"><i class="ti ti-plus" aria-hidden="true"></i>Agregar</button>
     </div>
 
     <div style="font-size:12px;color:var(--muted)">💡 Opcional: si tienes la cotización con pagos, los egresos se comparan automáticamente contra el costo presupuestado.</div>
@@ -2298,10 +2313,14 @@ async function cargarProveedor(){
       const option=sel.querySelector(`option[value="${valor}"]`);
       if(option.dataset.providerData){
         const provider=JSON.parse(option.dataset.providerData);
-        // Mapear precios del proveedor a campos
+        // Mapear precios del proveedor a campos según la categoría
         datos={};
-        if(provider.precioActual){
-          // Usar precio actual para postes (default)
+        if(provider.categoria==='alambre'){
+          // Alambre: precio por rollo + metros por rollo (varían por marca)
+          if(provider.precioActual) datos['p-pw']=provider.precioActual;
+          if(provider.metrosPorRollo) datos['m-pw']=provider.metrosPorRollo;
+        } else if(provider.precioActual){
+          // Postes / otros: precio actual a los postes
           datos['p-lc']=provider.precioActual;
           datos['p-lw']=provider.precioActual;
           datos['p-e1']=provider.precioActual;
@@ -2841,22 +2860,48 @@ function limpiarMontoNegociado(){
 // ── EGRESOS: COSTOS DE MATERIALES ────────────────────────────────────
 let egresos=[]; // array de {desc, cant, unitario}
 
+// Al elegir un material del desplegable: mostrar campo libre si es "Otro",
+// o pre-llenar el costo unitario con el precio real ya capturado arriba.
+function seleccionarMaterialEgreso(){
+  const sel=document.getElementById('egreso-material');
+  const descInput=document.getElementById('egreso-desc');
+  const unitInput=document.getElementById('egreso-unit');
+  if(sel.value==='__otro__'){
+    descInput.style.display='';
+    descInput.value='';
+    descInput.focus();
+    return;
+  }
+  descInput.style.display='none';
+  const opt=sel.options[sel.selectedIndex];
+  const costId=opt?opt.dataset.cost:'';
+  if(costId){
+    const v=parseFloat((document.getElementById(costId)||{}).value);
+    unitInput.value=(!isNaN(v)&&v>0)?v:'';
+  }
+}
+
 function agregarEgreso(){
-  const desc=(document.getElementById('egreso-desc').value||'').trim();
+  const sel=document.getElementById('egreso-material');
+  let desc='';
+  if(sel.value==='__otro__') desc=(document.getElementById('egreso-desc').value||'').trim();
+  else if(sel.value) desc=sel.options[sel.selectedIndex].text;
   const cant=parseFloat(document.getElementById('egreso-cant').value)||0;
   const unitario=parseFloat(document.getElementById('egreso-unit').value)||0;
 
   if(!desc || cant<=0 || unitario<=0){
-    toast('Completa descripción, cantidad y costo unitario', false);
+    toast('Elige un material, cantidad y costo unitario', false);
     return;
   }
 
   egresos.push({desc, cant, unitario});
   renderizarEgresos();
-  document.getElementById('egreso-desc').value='';
+  sel.value='';
+  const descInput=document.getElementById('egreso-desc');
+  descInput.value=''; descInput.style.display='none';
   document.getElementById('egreso-cant').value='';
   document.getElementById('egreso-unit').value='';
-  document.getElementById('egreso-desc').focus();
+  sel.focus();
 }
 
 function eliminarEgreso(idx){
@@ -3431,7 +3476,7 @@ function crearPanelProveedores(){
         <h3>➕ Agregar Proveedor</h3>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
           <input id="prov-nombre" type="text" placeholder="Nombre" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-          <select id="prov-categoria" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+          <select id="prov-categoria" onchange="toggleCamposAlambre()" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
             <option value="">-- Categoría --</option>
             <option value="postes">Postes</option>
             <option value="alambre">Alambre</option>
@@ -3440,9 +3485,15 @@ function crearPanelProveedores(){
           </select>
           <input id="prov-telefono" type="text" placeholder="Teléfono" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
           <input id="prov-email" type="email" placeholder="Email" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-          <input id="prov-precio" type="number" placeholder="Precio inicial" step="0.01" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+          <input id="prov-precio" type="number" placeholder="Precio inicial (por rollo si es alambre)" step="0.01" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
           <input id="prov-notas" type="text" placeholder="Notas" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
         </div>
+        <div id="prov-alambre-fields" style="display:none;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:1rem">
+          <input id="prov-marca" type="text" placeholder="Marca del alambre" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+          <input id="prov-metros" type="number" step="0.01" placeholder="Metros por rollo" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+          <input id="prov-kg" type="number" step="0.01" placeholder="Kg por rollo" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+        </div>
+        <div id="prov-alambre-hint" style="display:none;font-size:11px;color:var(--muted);font-family:var(--fm);margin-top:.5rem">Al cargar este proveedor en una cotización se aplican automáticamente el precio y los metros por rollo (varían por marca).</div>
         <button class="btnp ok" onclick="agregarProveedor()" style="margin-top:1rem;width:100%">Crear Proveedor</button>
       </div>
 
@@ -3485,6 +3536,7 @@ async function cargarProveedores(){
           <div>
             <h4 style="margin:0;color:var(--accent1)">${p.nombre}</h4>
             <p style="margin:0.5rem 0 0 0;font-size:12px;color:var(--muted)">Categoría: <strong>${p.categoria}</strong></p>
+            ${p.categoria==='alambre' && (p.marca||p.metrosPorRollo||p.kgPorRollo) ? `<p style="margin:0.3rem 0 0 0;font-size:12px;color:var(--accent)">${p.marca?'Marca: <strong>'+p.marca+'</strong>':''}${p.metrosPorRollo?' · '+p.metrosPorRollo+' m/rollo':''}${p.kgPorRollo?' · '+p.kgPorRollo+' kg/rollo':''}</p>` : ''}
           </div>
           <div style="text-align:right">
             <div style="font-size:18px;font-weight:bold;color:var(--accent2)">$${p.precioActual}</div>
@@ -3525,6 +3577,16 @@ async function cargarProveedores(){
   }
 }
 
+// Muestra los campos específicos de alambre (marca, metros/kg por rollo) solo si la categoría es "alambre"
+function toggleCamposAlambre(){
+  const cat=document.getElementById('prov-categoria').value;
+  const box=document.getElementById('prov-alambre-fields');
+  const hint=document.getElementById('prov-alambre-hint');
+  const mostrar = cat==='alambre';
+  if(box) box.style.display = mostrar ? 'grid' : 'none';
+  if(hint) hint.style.display = mostrar ? 'block' : 'none';
+}
+
 async function agregarProveedor(){
   const nombre=document.getElementById('prov-nombre').value.trim();
   const categoria=document.getElementById('prov-categoria').value;
@@ -3532,6 +3594,9 @@ async function agregarProveedor(){
   const email=document.getElementById('prov-email').value.trim();
   const precio=parseFloat(document.getElementById('prov-precio').value);
   const notas=document.getElementById('prov-notas').value.trim();
+  const marca=(document.getElementById('prov-marca')?.value||'').trim();
+  const kg=parseFloat(document.getElementById('prov-kg')?.value);
+  const metros=parseFloat(document.getElementById('prov-metros')?.value);
 
   if(!nombre||!categoria||!precio){
     alert('Completa nombre, categoría y precio');
@@ -3544,7 +3609,7 @@ async function agregarProveedor(){
     const resp=await fetch(API_BASE+'/api/providers', {
       method:'POST',
       headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
-      body:JSON.stringify({nombre,categoria,precioActual:precio,notas,contacto:{telefono,email}})
+      body:JSON.stringify({nombre,categoria,precioActual:precio,notas,contacto:{telefono,email},marca,kgPorRollo:isNaN(kg)?null:kg,metrosPorRollo:isNaN(metros)?null:metros})
     });
     if(!resp.ok) throw new Error('Error al crear');
 
@@ -3554,6 +3619,10 @@ async function agregarProveedor(){
     document.getElementById('prov-email').value='';
     document.getElementById('prov-precio').value='';
     document.getElementById('prov-notas').value='';
+    if(document.getElementById('prov-marca')) document.getElementById('prov-marca').value='';
+    if(document.getElementById('prov-kg')) document.getElementById('prov-kg').value='';
+    if(document.getElementById('prov-metros')) document.getElementById('prov-metros').value='';
+    toggleCamposAlambre();
 
     await cargarProveedores();
     alert('Proveedor creado');

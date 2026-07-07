@@ -182,6 +182,9 @@ async function createProvider(env, providerData) {
     contacto: providerData.contacto || {},
     notas: providerData.notas || '',
     precioActual: providerData.precioActual || 0,
+    marca: providerData.marca || '',
+    kgPorRollo: providerData.kgPorRollo != null ? providerData.kgPorRollo : null,
+    metrosPorRollo: providerData.metrosPorRollo != null ? providerData.metrosPorRollo : null,
     ultimaActualizacion: new Date().toISOString(),
     historialPrecios: [
       {
