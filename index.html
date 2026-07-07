@@ -844,7 +844,7 @@ function irAlHome(){
       </div>
       <div class="f">
         <label>Monto recibido (opcional, si difiere del total)</label>
-        <input type="number" id="montoRecibido" placeholder="Dejar vacío para usar el total" step="0.01" min="0">
+        <input type="number" id="montoRecibido" placeholder="Dejar vacío para usar el total" step="0.01" min="0" oninput="actualizarEstadoPagoResumen()">
       </div>
       <div class="f">
         <label>Notas (p. ej., método de pago)</label>
@@ -1881,6 +1881,7 @@ function nuevaCotizacion(){
   document.getElementById('comprobante-preview').style.display='none';
   document.getElementById('upload-status').textContent='—';
   document.getElementById('pago-ui').style.display='none';
+  recibosActuales=[]; actualizarEstadoPagoResumen(); // resetea el resumen de pago
   // Reset egresos
   egresos=[];
   renderizarEgresos();
@@ -2777,6 +2778,32 @@ let comprobanteCarga=null; // { nombre, tipo, base64 }
 function togglePagoUI(){
   const checked=document.getElementById('pagado').checked;
   document.getElementById('pago-ui').style.display=checked?'block':'none';
+  actualizarEstadoPagoResumen();
+}
+
+// Refleja el pago de la sección 8 ("Marcado como pagado" + monto recibido) en el
+// resumen de Recibos de Pago, SOLO cuando no hay pagos registrados con "Registrar Pago"
+// (esos tienen prioridad y los maneja cargarRecibos()).
+function actualizarEstadoPagoResumen(){
+  if(recibosActuales && recibosActuales.length>0) return; // los recibos registrados mandan
+  const badge=document.getElementById('estado-pago-badge');
+  const montoEl=document.getElementById('monto-pagado');
+  if(!badge||!montoEl) return;
+  const pagoChk=document.getElementById('pagado');
+  if(pagoChk && pagoChk.checked){
+    let monto=parseFloat(document.getElementById('montoRecibido').value);
+    if(isNaN(monto)||monto<=0){
+      const totalTxt=(document.getElementById('r-to').textContent||'').replace(/[$,]/g,'').trim();
+      monto=parseFloat(totalTxt)||0;
+    }
+    badge.textContent='✅ Pagado';
+    badge.style.color='var(--green)';
+    montoEl.textContent='$'+monto.toFixed(2);
+  }else{
+    badge.textContent='⚪ Pendiente';
+    badge.style.color='var(--muted)';
+    montoEl.textContent='$0.00';
+  }
 }
 
 function handleDrop(e){
@@ -4161,9 +4188,8 @@ async function cargarRecibos(){
       document.getElementById('historial-pagos').style.display='block';
     }else{
       totalPagado=0;
-      document.getElementById('estado-pago-badge').textContent='⚪ Pendiente';
-      document.getElementById('monto-pagado').textContent='$0.00';
       document.getElementById('historial-pagos').style.display='none';
+      actualizarEstadoPagoResumen(); // refleja la sección 8 si está marcada como pagada
     }
   }catch(e){
     console.error('Error cargando recibos:', e);
