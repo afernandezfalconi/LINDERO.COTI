@@ -422,11 +422,39 @@ function irAlHome(){
 
 <!-- MODAL: FINANZAS -->
 <div id="modal-finanzas-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center" onclick="if(event.target===this) cerrarFinanzas()">
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:720px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:780px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column">
     <div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem">
       <div class="stit">💰 Finanzas — Ingresos, Egresos y Utilidad</div>
       <button onclick="cerrarFinanzas()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1">✕</button>
     </div>
+
+    <!-- FILTROS DE FECHA -->
+    <div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);background:var(--bg-soft)">
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:1;min-width:180px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:.4rem;font-weight:500">Filtro rápido</label>
+          <select id="filtro-rapido-finanzas" onchange="cambiarFiltroRapidoFinanzas()" style="width:100%;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+            <option value="todo">Todo (sin filtro)</option>
+            <option value="este-mes">Este mes</option>
+            <option value="mes-pasado">Mes pasado</option>
+            <option value="ultimos-3">Últimos 3 meses</option>
+            <option value="ultimos-6">Últimos 6 meses</option>
+            <option value="este-ano">Este año</option>
+            <option value="personalizado">Personalizado</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:140px;display:none" id="filtro-fecha-desde-wrap">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:.4rem;font-weight:500">Desde</label>
+          <input type="date" id="filtro-fecha-desde-finanzas" onchange="filtrarFinanzas()" style="width:100%;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+        </div>
+        <div style="flex:1;min-width:140px;display:none" id="filtro-fecha-hasta-wrap">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:.4rem;font-weight:500">Hasta</label>
+          <input type="date" id="filtro-fecha-hasta-finanzas" onchange="filtrarFinanzas()" style="width:100%;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+        </div>
+      </div>
+      <div id="filtro-rango-txt" style="font-size:11px;color:var(--muted);margin-top:.5rem;font-family:var(--fm)">—</div>
+    </div>
+
     <div style="padding:1.25rem;overflow-y:auto">
       <div id="finanzas-content" style="display:flex;flex-direction:column;gap:1.5rem"></div>
     </div>
@@ -2446,6 +2474,8 @@ function limpiarComprobante(){
 }
 
 // ── FINANZAS: INGRESOS, EGRESOS, UTILIDAD ─────────────────────────
+let finanzasDataCache=null; // cache de cotizaciones completas
+
 async function abrirFinanzas(){
   document.getElementById('modal-finanzas-overlay').style.display='flex';
   const cont=document.getElementById('finanzas-content');
@@ -2471,71 +2501,165 @@ async function abrirFinanzas(){
       }
     }
 
-    // Calcular ingresos (cotizaciones pagadas)
-    const ingresos=datosCompletos.filter(c=>c.data.pago&&c.data.pago.pagado).map(c=>({
+    finanzasDataCache=datosCompletos;
+
+    // Reset filtros
+    document.getElementById('filtro-rapido-finanzas').value='todo';
+    document.getElementById('filtro-fecha-desde-finanzas').value='';
+    document.getElementById('filtro-fecha-hasta-finanzas').value='';
+    document.getElementById('filtro-fecha-desde-wrap').style.display='none';
+    document.getElementById('filtro-fecha-hasta-wrap').style.display='none';
+    document.getElementById('filtro-rango-txt').textContent='—';
+
+    filtrarFinanzas();
+  }catch(e){
+    cont.innerHTML='<div style="color:var(--red)">Error al cargar finanzas: '+((e&&e.message)||e)+'</div>';
+  }
+}
+
+function cambiarFiltroRapidoFinanzas(){
+  const filtro=document.getElementById('filtro-rapido-finanzas').value;
+  const ahora=new Date();
+  let desde=null, hasta=null;
+
+  if(filtro==='este-mes'){
+    desde=new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    hasta=new Date(ahora.getFullYear(), ahora.getMonth()+1, 0);
+  }else if(filtro==='mes-pasado'){
+    desde=new Date(ahora.getFullYear(), ahora.getMonth()-1, 1);
+    hasta=new Date(ahora.getFullYear(), ahora.getMonth(), 0);
+  }else if(filtro==='ultimos-3'){
+    desde=new Date(ahora);
+    desde.setMonth(desde.getMonth()-3);
+    hasta=new Date(ahora.getFullYear(), ahora.getMonth()+1, 0);
+  }else if(filtro==='ultimos-6'){
+    desde=new Date(ahora);
+    desde.setMonth(desde.getMonth()-6);
+    hasta=new Date(ahora.getFullYear(), ahora.getMonth()+1, 0);
+  }else if(filtro==='este-ano'){
+    desde=new Date(ahora.getFullYear(), 0, 1);
+    hasta=new Date(ahora.getFullYear(), 11, 31);
+  }else if(filtro==='personalizado'){
+    document.getElementById('filtro-fecha-desde-wrap').style.display='block';
+    document.getElementById('filtro-fecha-hasta-wrap').style.display='block';
+    filtrarFinanzas();
+    return;
+  }else{
+    document.getElementById('filtro-fecha-desde-wrap').style.display='none';
+    document.getElementById('filtro-fecha-hasta-wrap').style.display='none';
+    document.getElementById('filtro-rango-txt').textContent='—';
+    filtrarFinanzas();
+    return;
+  }
+
+  document.getElementById('filtro-fecha-desde-wrap').style.display='none';
+  document.getElementById('filtro-fecha-hasta-wrap').style.display='none';
+  document.getElementById('filtro-rango-txt').textContent=desde.toLocaleDateString('es-MX')+' → '+hasta.toLocaleDateString('es-MX');
+  document.getElementById('filtro-fecha-desde-finanzas').value=formatDate(desde);
+  document.getElementById('filtro-fecha-hasta-finanzas').value=formatDate(hasta);
+  filtrarFinanzas();
+}
+
+function formatDate(d){
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+day;
+}
+
+function filtrarFinanzas(){
+  if(!finanzasDataCache){
+    document.getElementById('finanzas-content').innerHTML='<div style="color:var(--red)">Error: sin datos cacheados</div>';
+    return;
+  }
+
+  const desdeStr=document.getElementById('filtro-fecha-desde-finanzas').value;
+  const hastaStr=document.getElementById('filtro-fecha-hasta-finanzas').value;
+  let desde=null, hasta=null;
+
+  if(desdeStr){
+    desde=new Date(desdeStr+'T00:00:00');
+    if(desdeStr && !hastaStr) {
+      document.getElementById('filtro-rango-txt').textContent='Desde '+new Date(desdeStr).toLocaleDateString('es-MX');
+    }
+  }
+  if(hastaStr){
+    hasta=new Date(hastaStr+'T23:59:59');
+    if(!desdeStr && hastaStr) {
+      document.getElementById('filtro-rango-txt').textContent='Hasta '+new Date(hastaStr).toLocaleDateString('es-MX');
+    }
+  }
+  if(desdeStr && hastaStr){
+    document.getElementById('filtro-rango-txt').textContent=new Date(desdeStr).toLocaleDateString('es-MX')+' → '+new Date(hastaStr).toLocaleDateString('es-MX');
+  }
+
+  // Filtrar ingresos
+  const ingresos=finanzasDataCache
+    .filter(c=>c.data.pago&&c.data.pago.pagado)
+    .map(c=>({
       folio:c.folio,
       cliente:c.cliente,
       monto:c.data.pago.montoRecibido||parseFloat(c.total)||0,
       fechaPago:c.data.pago.fechaPago||'—',
-      conVoucher:!!c.data.pago.comprobante
-    }));
+      conVoucher:!!c.data.pago.comprobante,
+      fecha:c.data.pago.fechaPago?new Date(c.data.pago.fechaPago):null
+    }))
+    .filter(ing=>{
+      if(!ing.fecha) return false;
+      if(desde && ing.fecha<desde) return false;
+      if(hasta && ing.fecha>hasta) return false;
+      return true;
+    });
 
-    const totalIngresos=ingresos.reduce((sum,i)=>sum+i.monto,0);
+  const totalIngresos=ingresos.reduce((sum,i)=>sum+i.monto,0);
+  const egresos=[]; // placeholder
+  const totalEgresos=egresos.reduce((sum,e)=>sum+e.monto,0);
+  const utilidadNeta=totalIngresos-totalEgresos;
 
-    // Egresos (por ahora, campo manual que se agregaría después)
-    // Por ahora mostraremos solo la estructura
-    const egresos=[];
-    const totalEgresos=egresos.reduce((sum,e)=>sum+e.monto,0);
+  let html='';
 
-    // Utilidad Neta
-    const utilidadNeta=totalIngresos-totalEgresos;
-
-    let html='';
-
-    // Sección de Ingresos
-    html+='<div style="border:1px solid var(--border);border-radius:8px;padding:1rem">';
-    html+='<div style="font-weight:600;color:var(--green);margin-bottom:0.75rem">📈 Ingresos (Cotizaciones Pagadas)</div>';
-    if(ingresos.length===0){
-      html+='<div style="color:var(--muted);font-size:13px;text-align:center;padding:1rem">Sin cotizaciones pagadas</div>';
-    }else{
-      html+='<table style="width:100%;font-size:13px;border-collapse:collapse">';
-      html+='<thead><tr style="border-bottom:1px solid var(--border)">';
-      html+='<th style="text-align:left;padding:0.5rem;padding-bottom:0.75rem">Folio</th>';
-      html+='<th style="text-align:left;padding:0.5rem;padding-bottom:0.75rem">Cliente</th>';
-      html+='<th style="text-align:right;padding:0.5rem;padding-bottom:0.75rem">Monto</th>';
-      html+='<th style="text-align:center;padding:0.5rem;padding-bottom:0.75rem">Comprobante</th>';
-      html+='<th style="text-align:left;padding:0.5rem;padding-bottom:0.75rem">Fecha</th>';
-      html+='</tr></thead><tbody>';
-      ingresos.forEach(ing=>{
-        html+='<tr style="border-bottom:1px solid var(--border-soft)">';
-        html+='<td style="padding:0.6rem 0.5rem;font-family:var(--fm)">'+ing.folio+'</td>';
-        html+='<td style="padding:0.6rem 0.5rem">'+ing.cliente+'</td>';
-        html+='<td style="padding:0.6rem 0.5rem;text-align:right;font-family:var(--fm)">'+$m(ing.monto)+'</td>';
-        html+='<td style="padding:0.6rem 0.5rem;text-align:center">'+(ing.conVoucher?'📎':'—')+'</td>';
-        html+='<td style="padding:0.6rem 0.5rem;font-size:12px;color:var(--muted)">'+ing.fechaPago+'</td>';
-        html+='</tr>';
-      });
-      html+='</tbody></table>';
-      html+='<div style="text-align:right;padding-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border);font-weight:600;font-family:var(--fm)">Total: '+$m(totalIngresos)+'</div>';
-    }
-    html+='</div>';
-
-    // Sección de Egresos
-    html+='<div style="border:1px solid var(--border);border-radius:8px;padding:1rem">';
-    html+='<div style="font-weight:600;color:var(--red);margin-bottom:0.75rem">📉 Egresos (Costo de Materiales)</div>';
-    html+='<div style="color:var(--muted);font-size:13px;text-align:center;padding:1rem;background:var(--bg-soft);border-radius:6px">⚠️ Módulo de egresos en desarrollo<br/>Se agregará la capacidad de registrar costos reales de materiales por cotización</div>';
-    html+='</div>';
-
-    // Sección de Utilidad Neta
-    html+='<div style="background:var(--accent);border-radius:8px;padding:1.25rem;color:var(--fg);text-align:center">';
-    html+='<div style="font-size:13px;opacity:0.9;margin-bottom:0.5rem">Utilidad Neta (Ingresos − Egresos)</div>';
-    html+='<div style="font-size:28px;font-weight:700;font-family:var(--fm)">'+$m(utilidadNeta)+'</div>';
-    html+='</div>';
-
-    cont.innerHTML=html;
-  }catch(e){
-    cont.innerHTML='<div style="color:var(--red)">Error al cargar finanzas: '+((e&&e.message)||e)+'</div>';
+  // Sección de Ingresos
+  html+='<div style="border:1px solid var(--border);border-radius:8px;padding:1rem">';
+  html+='<div style="font-weight:600;color:var(--green);margin-bottom:0.75rem">📈 Ingresos (Cotizaciones Pagadas)</div>';
+  if(ingresos.length===0){
+    html+='<div style="color:var(--muted);font-size:13px;text-align:center;padding:1rem">Sin cotizaciones pagadas en este período</div>';
+  }else{
+    html+='<table style="width:100%;font-size:13px;border-collapse:collapse">';
+    html+='<thead><tr style="border-bottom:1px solid var(--border)">';
+    html+='<th style="text-align:left;padding:0.5rem;padding-bottom:0.75rem">Folio</th>';
+    html+='<th style="text-align:left;padding:0.5rem;padding-bottom:0.75rem">Cliente</th>';
+    html+='<th style="text-align:right;padding:0.5rem;padding-bottom:0.75rem">Monto</th>';
+    html+='<th style="text-align:center;padding:0.5rem;padding-bottom:0.75rem">Comprobante</th>';
+    html+='<th style="text-align:left;padding:0.5rem;padding-bottom:0.75rem">Fecha</th>';
+    html+='</tr></thead><tbody>';
+    ingresos.forEach(ing=>{
+      html+='<tr style="border-bottom:1px solid var(--border-soft)">';
+      html+='<td style="padding:0.6rem 0.5rem;font-family:var(--fm)">'+ing.folio+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem">'+ing.cliente+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem;text-align:right;font-family:var(--fm)">'+$m(ing.monto)+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem;text-align:center">'+(ing.conVoucher?'📎':'—')+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem;font-size:12px;color:var(--muted)">'+ing.fechaPago+'</td>';
+      html+='</tr>';
+    });
+    html+='</tbody></table>';
+    html+='<div style="text-align:right;padding-top:0.75rem;border-top:1px solid var(--border);font-weight:600;font-family:var(--fm)">Total: '+$m(totalIngresos)+'</div>';
   }
+  html+='</div>';
+
+  // Sección de Egresos
+  html+='<div style="border:1px solid var(--border);border-radius:8px;padding:1rem">';
+  html+='<div style="font-weight:600;color:var(--red);margin-bottom:0.75rem">📉 Egresos (Costo de Materiales)</div>';
+  html+='<div style="color:var(--muted);font-size:13px;text-align:center;padding:1rem;background:var(--bg-soft);border-radius:6px">⚠️ Módulo de egresos en desarrollo<br/>Se agregará la capacidad de registrar costos reales de materiales por cotización</div>';
+  html+='</div>';
+
+  // Sección de Utilidad Neta
+  html+='<div style="background:var(--accent);border-radius:8px;padding:1.25rem;color:var(--fg);text-align:center">';
+  html+='<div style="font-size:13px;opacity:0.9;margin-bottom:0.5rem">Utilidad Neta (Ingresos − Egresos)</div>';
+  html+='<div style="font-size:28px;font-weight:700;font-family:var(--fm)">'+$m(utilidadNeta)+'</div>';
+  html+='<div style="font-size:11px;opacity:0.7;margin-top:0.5rem;font-family:var(--fm)">'+ingresos.length+' pago(s) en este período</div>';
+  html+='</div>';
+
+  document.getElementById('finanzas-content').innerHTML=html;
 }
 
 function cerrarFinanzas(){
