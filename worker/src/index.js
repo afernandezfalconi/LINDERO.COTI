@@ -22,8 +22,10 @@ const RATE_LIMIT_PREFIX = 'ratelimit:';
 const PROVIDERS_PREFIX = 'provider:';
 const PROVIDER_HISTORY_PREFIX = 'provider_history:';
 const LANDING_PREFIX = 'landing:';
+const RECEIPTS_PREFIX = 'receipt:';
 const SEQ_KEY = 'meta:folioSeq';
 const PROVIDERS_SEQ_KEY = 'meta:providerSeq';
+const RECEIPTS_SEQ_KEY = 'meta:receiptSeq';
 const FOLIO_PREFIX = 'COT-';
 const ADMIN_EMAIL = 'afernandezfalconi@gmail.com';
 
@@ -242,6 +244,98 @@ async function getPriceStats(env, providerId) {
     cambioReciente: history.length >= 2 ? ((history[0].precio - history[1].precio) / history[1].precio * 100).toFixed(2) + '%' : '0%',
     cantidadDatos: history.length
   };
+}
+
+// ── RECIBOS DE PAGO ───────────────────────────────────────────────────
+function generateReceiptNumber() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const seq = String(Math.floor(Math.random() * 100000)).padStart(5, '0');
+  return `${year}${month}:${seq}`;
+}
+
+async function createReceipt(env, receiptData) {
+  const numero = generateReceiptNumber();
+
+  const receipt = {
+    numero,
+    folio: receiptData.folio,
+    fecha: new Date().toISOString(),
+    cliente: receiptData.cliente || {},
+    detalles: receiptData.detalles || {},
+    impuestos: receiptData.impuestos || { incluirIVA: false, ivaPorcentaje: 16, ivaValor: 0 },
+    totales: receiptData.totales || {},
+    pago: {
+      metodo: receiptData.metodo || 'efectivo',
+      monto: receiptData.monto || 0,
+      estado: 'pendiente'
+    },
+    historiaPagos: [
+      {
+        fecha: new Date().toISOString(),
+        monto: receiptData.monto || 0,
+        metodo: receiptData.metodo || 'efectivo',
+        comprobante: receiptData.comprobante || '',
+        descripcion: receiptData.descripcion || ''
+      }
+    ]
+  };
+
+  await env.COTIZACIONES.put(RECEIPTS_PREFIX + numero, JSON.stringify(receipt));
+  return receipt;
+}
+
+async function getReceiptByNumber(env, numero) {
+  const data = await env.COTIZACIONES.get(RECEIPTS_PREFIX + numero);
+  return data ? JSON.parse(data) : null;
+}
+
+async function getReceiptsByFolio(env, folio) {
+  const receipts = [];
+  let cursor;
+  do {
+    const res = await env.COTIZACIONES.list({ prefix: RECEIPTS_PREFIX, cursor, limit: 100 });
+    for (const k of res.keys) {
+      const data = await env.COTIZACIONES.get(k.name);
+      if (data) {
+        const receipt = JSON.parse(data);
+        if (receipt.folio === folio) receipts.push(receipt);
+      }
+    }
+    cursor = res.list_complete ? null : res.cursor;
+  } while (cursor);
+  return receipts.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+}
+
+async function addPayment(env, receiptNumber, payment) {
+  const receipt = await getReceiptByNumber(env, receiptNumber);
+  if (!receipt) return null;
+
+  // Agregar pago al historial
+  receipt.historiaPagos = receipt.historiaPagos || [];
+  receipt.historiaPagos.push({
+    fecha: new Date().toISOString(),
+    monto: payment.monto,
+    metodo: payment.metodo || 'efectivo',
+    comprobante: payment.comprobante || '',
+    descripcion: payment.descripcion || ''
+  });
+
+  // Actualizar totales pagados
+  const totalPagado = receipt.historiaPagos.reduce((sum, p) => sum + p.monto, 0);
+  const totalRequerido = receipt.totales.total || 0;
+
+  if (totalPagado >= totalRequerido) {
+    receipt.pago.estado = 'completo';
+    receipt.pago.monto = totalPagado;
+  } else if (totalPagado > 0) {
+    receipt.pago.estado = 'parcial';
+    receipt.pago.monto = totalPagado;
+  }
+
+  await env.COTIZACIONES.put(RECEIPTS_PREFIX + receiptNumber, JSON.stringify(receipt));
+  return receipt;
 }
 
 // ── LANDING PAGE CON TOKEN ────────────────────────────────────────────
@@ -734,6 +828,69 @@ export default {
         await deleteProvider(env, providerId);
         await createAuditLog(env, user, 'DELETE_PROVIDER', providerId);
         return json({ message: 'Proveedor eliminado' }, 200, origin);
+      }
+
+      // ── RECIBOS DE PAGO ───────────────────────────────────────────────
+      if (request.method === 'POST' && path === '/api/receipts') {
+        const body = await request.json();
+        if (!body.folio || !body.cliente || !body.detalles || !body.totales) {
+          return json({ error: 'Campos requeridos: folio, cliente, detalles, totales' }, 400, origin);
+        }
+
+        const receipt = await createReceipt(env, {
+          folio: body.folio,
+          cliente: body.cliente,
+          detalles: body.detalles,
+          totales: body.totales,
+          impuestos: body.impuestos || {},
+          metodo: body.metodo || 'efectivo',
+          monto: body.monto || 0,
+          comprobante: body.comprobante || '',
+          descripcion: body.descripcion || ''
+        });
+
+        await createAuditLog(env, user, 'CREATE_RECEIPT', receipt.numero, { folio: body.folio });
+        return json(receipt, 201, origin);
+      }
+
+      if (request.method === 'GET' && path.match(/^\/api\/receipts\/[A-Z0-9:]+$/)) {
+        const numero = path.split('/').pop();
+        const receipt = await getReceiptByNumber(env, numero);
+        if (!receipt) return json({ error: 'Recibo no encontrado' }, 404, origin);
+
+        await createAuditLog(env, user, 'VIEW_RECEIPT', numero);
+        return json(receipt, 200, origin);
+      }
+
+      if (request.method === 'GET' && path.match(/^\/api\/cotizaciones\/[^/]+\/receipts$/)) {
+        const folio = path.split('/')[3];
+        const receipts = await getReceiptsByFolio(env, folio);
+        await createAuditLog(env, user, 'VIEW_RECEIPTS', folio, { count: receipts.length });
+        return json({ items: receipts }, 200, origin);
+      }
+
+      if (request.method === 'POST' && path.match(/^\/api\/receipts\/[A-Z0-9:]+\/payment$/)) {
+        const numero = path.split('/')[3];
+        const body = await request.json();
+        if (typeof body.monto !== 'number' || body.monto <= 0) {
+          return json({ error: 'Monto requerido (número > 0)' }, 400, origin);
+        }
+
+        const updated = await addPayment(env, numero, {
+          monto: body.monto,
+          metodo: body.metodo || 'efectivo',
+          comprobante: body.comprobante || '',
+          descripcion: body.descripcion || ''
+        });
+
+        if (!updated) return json({ error: 'Recibo no encontrado' }, 404, origin);
+
+        await createAuditLog(env, user, 'ADD_PAYMENT', numero, {
+          monto: body.monto,
+          metodo: body.metodo,
+          estado: updated.pago.estado
+        });
+        return json(updated, 200, origin);
       }
 
       return json({ error: 'Ruta no encontrada' }, 404, origin);

@@ -985,6 +985,41 @@ function irAlHome(){
   <hr class="rdiv">
   <div class="rtot"><div class="rtl">Total estimado</div><div class="rtv" id="r-to">$—</div></div>
   <div style="font-size:11px;color:var(--red);font-family:var(--fm);margin-top:.3rem;text-align:right" id="r-pd"></div>
+  <!-- SECCIÓN: RECIBOS DE PAGO -->
+  <div style="margin-top:1.5rem;padding-top:1.5rem;border-top:2px solid var(--border)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+      <div style="font-family:var(--fh);font-size:1rem;font-weight:700">💳 Recibos de Pago</div>
+      <button class="tb" style="padding:0.4rem 0.8rem;font-size:12px" onclick="abrirRegistroPago()">➕ Registrar Pago</button>
+    </div>
+
+    <!-- Estado de Pago -->
+    <div id="estado-pago" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+      <div style="background:var(--bg3);padding:0.75rem;border-radius:4px;text-align:center">
+        <div style="font-size:11px;color:var(--muted)">Estado</div>
+        <div style="font-size:14px;font-weight:bold;color:var(--accent)" id="estado-pago-badge">⚪ Pendiente</div>
+      </div>
+      <div style="background:var(--bg3);padding:0.75rem;border-radius:4px;text-align:center">
+        <div style="font-size:11px;color:var(--muted)">Pagado</div>
+        <div style="font-size:14px;font-weight:bold;color:var(--green)" id="monto-pagado">$0.00</div>
+      </div>
+    </div>
+
+    <!-- Checkbox IVA -->
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem">
+      <input type="checkbox" id="incluirIVA" onchange="actualizarTotalIVA()">
+      <label for="incluirIVA" style="font-size:12px;cursor:pointer">Incluir IVA (16%) en recibo</label>
+      <span style="font-size:11px;color:var(--muted)" id="iva-amount">IVA: $0.00</span>
+    </div>
+
+    <!-- Historial de Pagos -->
+    <div id="historial-pagos" style="display:none;margin-bottom:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">📋 Historial</div>
+      <div id="pagos-tabla" style="display:grid;gap:0.5rem;font-size:11px">
+        <!-- Pagos se cargarán aquí -->
+      </div>
+    </div>
+  </div>
+
   <button class="btnp" style="background:var(--bg3);color:var(--accent);border:1px solid var(--accent)" onclick="abrirComparador()">⚖ Comparar escenarios</button>
   <button class="btnp" onclick="abrirDialogoExportar()">Imprimir / exportar cotización</button>
   <div class="notic">Campos en amarillo = precio pendiente. El total se recalcula solo.</div>
@@ -1940,6 +1975,7 @@ async function guardarCotizacion(){
       cotizacionActualKey=r.id;   // = folio; a partir de aquí "Guardar" actualiza este registro
       document.getElementById('cli-f').value=r.folio;
       calc();
+      await cargarRecibos();
       toast('✓ Cotización guardada — folio '+r.folio, true);
     }
   }catch(e){
@@ -3599,6 +3635,209 @@ async function mostrarGraficoVolatilidad(providerId){
     },100);
   }catch(e){
     alert('Error: '+e.message);
+  }
+}
+
+// ── FASE 5: RECIBOS DE PAGO ───────────────────────────────────────
+let recibosActuales=[];
+let totalPagado=0;
+
+function actualizarTotalIVA(){
+  const incluir=document.getElementById('incluirIVA').checked;
+  const total=parseFloat(document.getElementById('r-to').textContent.replace('$',''))||0;
+  const iva=incluir?Math.round(total*0.16*100)/100:0;
+  document.getElementById('iva-amount').textContent='IVA: $'+iva.toFixed(2);
+}
+
+function abrirRegistroPago(){
+  const folio=document.getElementById('cli-f').value;
+  if(!folio||folio===''){
+    alert('Guarda la cotización primero para registrar pagos');
+    return;
+  }
+
+  const totalRecibo=parseFloat(document.getElementById('r-to').textContent.replace('$',''))||0;
+  const faltaPagar=totalRecibo-totalPagado;
+
+  const modalHTML=`
+  <div id="modal-pago" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999">
+    <div style="background:white;border-radius:8px;padding:2rem;max-width:500px;width:90%">
+      <h3 style="margin-top:0">Registrar Pago - ${folio}</h3>
+
+      <div style="background:var(--bg3);padding:1rem;border-radius:6px;margin-bottom:1.5rem">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;font-size:12px">
+          <div>
+            <div style="color:var(--muted)">Total de cotización</div>
+            <div style="font-weight:bold;color:var(--accent)">$${totalRecibo.toFixed(2)}</div>
+          </div>
+          <div>
+            <div style="color:var(--muted)">Falta pagar</div>
+            <div style="font-weight:bold;color:var(--red)">$${faltaPagar.toFixed(2)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;gap:1rem;margin-bottom:1.5rem">
+        <div>
+          <label style="font-size:12px;color:var(--muted)">Monto a pagar</label>
+          <input id="monto-input" type="number" step="0.01" value="${faltaPagar.toFixed(2)}" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
+        </div>
+
+        <div>
+          <label style="font-size:12px;color:var(--muted)">Método de pago</label>
+          <select id="metodo-input" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="tarjeta">Tarjeta</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:12px;color:var(--muted)">Comprobante (ej. TRX-123456)</label>
+          <input id="comprobante-input" type="text" placeholder="Opcional" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
+        </div>
+
+        <div>
+          <label style="font-size:12px;color:var(--muted)">Descripción</label>
+          <input id="descripcion-input" type="text" placeholder="ej. 50% inicial" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:0.5rem">
+        <button class="btnp ok" onclick="guardarPago()" style="flex:1">✓ Registrar</button>
+        <button class="btnp" onclick="cerrarRegistroPago()" style="flex:1;background:var(--bg3)">Cancelar</button>
+      </div>
+    </div>
+  </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+function cerrarRegistroPago(){
+  const modal=document.getElementById('modal-pago');
+  if(modal) modal.remove();
+}
+
+async function guardarPago(){
+  const folio=document.getElementById('cli-f').value;
+  const monto=parseFloat(document.getElementById('monto-input').value);
+  const metodo=document.getElementById('metodo-input').value;
+  const comprobante=document.getElementById('comprobante-input').value;
+  const descripcion=document.getElementById('descripcion-input').value;
+
+  if(!monto||monto<=0){
+    alert('Ingresa un monto válido');
+    return;
+  }
+
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+
+  try{
+    // Crear recibo si es el primer pago
+    if(recibosActuales.length===0){
+      const totalRecibo=parseFloat(document.getElementById('r-to').textContent.replace('$',''))||0;
+      const incluirIVA=document.getElementById('incluirIVA').checked;
+      const iva=incluirIVA?Math.round(totalRecibo*0.16*100)/100:0;
+
+      const recibResp=await fetch(API_BASE+'/api/receipts', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
+        body:JSON.stringify({
+          folio,
+          cliente:{nombre:document.getElementById('cli-n').value},
+          detalles:{descripcion:'Instalación de cerca'},
+          totales:{subtotal:totalRecibo,total:totalRecibo+iva},
+          impuestos:{incluirIVA,ivaPorcentaje:16,ivaValor:iva},
+          metodo,
+          monto,
+          comprobante,
+          descripcion
+        })
+      });
+
+      if(!recibResp.ok) throw new Error('Error al crear recibo');
+      const recibo=await recibResp.json();
+      recibosActuales=[recibo];
+    }else{
+      // Agregar pago a recibo existente
+      const recibo=recibosActuales[0];
+      const pagoResp=await fetch(API_BASE+'/api/receipts/'+recibo.numero+'/payment', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
+        body:JSON.stringify({monto,metodo,comprobante,descripcion})
+      });
+
+      if(!pagoResp.ok) throw new Error('Error al registrar pago');
+      const recibActual=await pagoResp.json();
+      recibosActuales=[recibActual];
+    }
+
+    cerrarRegistroPago();
+    await cargarRecibos();
+    toast('✓ Pago registrado', true);
+  }catch(e){
+    alert('Error: '+e.message);
+  }
+}
+
+async function cargarRecibos(){
+  const folio=document.getElementById('cli-f').value;
+  if(!folio) return;
+
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+
+  try{
+    const resp=await fetch(API_BASE+'/api/cotizaciones/'+encodeURIComponent(folio)+'/receipts', {
+      headers:{'X-Auth-Token':token,'X-User-Email':user.email}
+    });
+
+    if(!resp.ok) return;
+    const data=await resp.json();
+    recibosActuales=data.items||[];
+
+    // Actualizar UI
+    if(recibosActuales.length>0){
+      const recibo=recibosActuales[0];
+      totalPagado=recibo.historiaPagos.reduce((sum,p)=>sum+p.monto,0);
+
+      // Actualizar estado
+      let estadoTexto='⚪ Pendiente';
+      let estadoColor='var(--muted)';
+      if(recibo.pago.estado==='completo'){
+        estadoTexto='✅ Completo';
+        estadoColor='var(--green)';
+      }else if(recibo.pago.estado==='parcial'){
+        estadoTexto='⭕ Parcial ('+((totalPagado/(recibo.totales.total||1))*100).toFixed(0)+'%)';
+        estadoColor='var(--accent)';
+      }
+
+      document.getElementById('estado-pago-badge').textContent=estadoTexto;
+      document.getElementById('estado-pago-badge').style.color=estadoColor;
+      document.getElementById('monto-pagado').textContent='$'+totalPagado.toFixed(2);
+
+      // Historial de pagos
+      const tablaDiv=document.getElementById('pagos-tabla');
+      tablaDiv.innerHTML='';
+      recibo.historiaPagos.forEach(pago=>{
+        const fecha=new Date(pago.fecha).toLocaleDateString('es-MX');
+        const fila=`<div style="background:var(--bg3);padding:0.5rem;border-radius:4px;display:flex;justify-content:space-between">
+          <div><strong>${fecha}</strong> ${pago.metodo} ${pago.comprobante?' ('+pago.comprobante+')':''}</div>
+          <div style="text-align:right"><strong style="color:var(--green)">+$${pago.monto.toFixed(2)}</strong></div>
+        </div>`;
+        tablaDiv.insertAdjacentHTML('beforeend', fila);
+      });
+
+      document.getElementById('historial-pagos').style.display='block';
+    }else{
+      totalPagado=0;
+      document.getElementById('estado-pago-badge').textContent='⚪ Pendiente';
+      document.getElementById('monto-pagado').textContent='$0.00';
+      document.getElementById('historial-pagos').style.display='none';
+    }
+  }catch(e){
+    console.error('Error cargando recibos:', e);
   }
 }
 
