@@ -3650,6 +3650,12 @@ function actualizarTotalIVA(){
 }
 
 function abrirRegistroPago(){
+  // Validar autenticación
+  if(!obtenerToken()){
+    alert('Debes iniciar sesión primero');
+    return;
+  }
+
   const folio=document.getElementById('cli-f')?.value;
   const totalEl=document.getElementById('r-to');
 
