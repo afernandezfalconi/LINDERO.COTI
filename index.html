@@ -3685,32 +3685,50 @@ function abrirRegistroPago(){
 
         <div>
           <label style="font-size:12px;color:var(--muted)">Método de pago</label>
-          <select id="metodo-input" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
+          <select id="metodo-input" onchange="actualizarVisibilidadComprobante()" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
             <option value="efectivo">Efectivo</option>
             <option value="transferencia">Transferencia</option>
             <option value="tarjeta">Tarjeta</option>
           </select>
         </div>
 
-        <div>
+        <div id="div-comprobante">
           <label style="font-size:12px;color:var(--muted)">Comprobante (ej. TRX-123456)</label>
-          <input id="comprobante-input" type="text" placeholder="Opcional" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
+          <input id="comprobante-input" type="text" placeholder="Requerido para transferencia/tarjeta" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
+        </div>
+
+        <div id="div-confirmar-efectivo" style="display:none;background:#fff9e6;padding:0.75rem;border-radius:4px;border:1px solid #ffc107">
+          <label style="display:flex;align-items:center;gap:0.5rem;font-size:12px;cursor:pointer">
+            <input type="checkbox" id="confirmar-efectivo">
+            <span>Confirmo que el pago en efectivo fue recibido</span>
+          </label>
         </div>
 
         <div>
-          <label style="font-size:12px;color:var(--muted)">Descripción</label>
-          <input id="descripcion-input" type="text" placeholder="ej. 50% inicial" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
+          <label style="font-size:12px;color:var(--muted)">Descripción (ej. 50% inicial)</label>
+          <input id="descripcion-input" type="text" placeholder="Opcional" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
         </div>
       </div>
 
       <div style="display:flex;gap:0.5rem">
-        <button class="btnp ok" onclick="guardarPago()" style="flex:1">✓ Registrar</button>
+        <button class="btnp ok" onclick="guardarPago()" style="flex:1">✓ Registrar Pago</button>
         <button class="btnp" onclick="cerrarRegistroPago()" style="flex:1;background:var(--bg3)">Cancelar</button>
       </div>
     </div>
   </div>`;
 
   document.body.insertAdjacentHTML('beforeend', modalHTML);
+  actualizarVisibilidadComprobante();
+}
+
+function actualizarVisibilidadComprobante(){
+  const metodo=document.getElementById('metodo-input')?.value||'efectivo';
+  const divConfirmar=document.getElementById('div-confirmar-efectivo');
+  if(metodo==='efectivo'){
+    divConfirmar.style.display='block';
+  }else{
+    divConfirmar.style.display='none';
+  }
 }
 
 function cerrarRegistroPago(){
@@ -3722,11 +3740,42 @@ async function guardarPago(){
   const folio=document.getElementById('cli-f').value;
   const monto=parseFloat(document.getElementById('monto-input').value);
   const metodo=document.getElementById('metodo-input').value;
-  const comprobante=document.getElementById('comprobante-input').value;
+  const comprobante=document.getElementById('comprobante-input').value.trim();
   const descripcion=document.getElementById('descripcion-input').value;
+  const totalRecibo=parseFloat(document.getElementById('r-to').textContent.replace('$',''))||0;
+  const nuevoTotalPagado=totalPagado+monto;
 
+  // Validaciones
   if(!monto||monto<=0){
     alert('Ingresa un monto válido');
+    return;
+  }
+
+  if(metodo==='transferencia'||metodo==='tarjeta'){
+    if(!comprobante){
+      alert(`Se requiere comprobante para pago por ${metodo}`);
+      return;
+    }
+  }
+
+  if(metodo==='efectivo'){
+    const confirmado=document.getElementById('confirmar-efectivo')?.checked;
+    if(!confirmado){
+      alert('Marca la casilla de confirmación de pago en efectivo');
+      return;
+    }
+  }
+
+  // Validar que no sobrepase el total
+  if(nuevoTotalPagado>totalRecibo){
+    alert(`El monto no puede superar el total de $${totalRecibo.toFixed(2)}`);
+    return;
+  }
+
+  // Validar que si es pago completo, debe tener comprobante (excepto efectivo)
+  const seraPagoCompleto=Math.abs(nuevoTotalPagado-totalRecibo)<0.01;
+  if(seraPagoCompleto&&metodo!=='efectivo'&&!comprobante){
+    alert('Se requiere comprobante para pago completo por '+metodo);
     return;
   }
 
@@ -3736,7 +3785,6 @@ async function guardarPago(){
   try{
     // Crear recibo si es el primer pago
     if(recibosActuales.length===0){
-      const totalRecibo=parseFloat(document.getElementById('r-to').textContent.replace('$',''))||0;
       const incluirIVA=document.getElementById('incluirIVA').checked;
       const iva=incluirIVA?Math.round(totalRecibo*0.16*100)/100:0;
 
@@ -3775,7 +3823,13 @@ async function guardarPago(){
 
     cerrarRegistroPago();
     await cargarRecibos();
-    toast('✓ Pago registrado', true);
+
+    const nuevoEstado=await cargarRecibos();
+    if(recibosActuales.length>0&&recibosActuales[0].pago.estado==='completo'){
+      toast('✓ Pago registrado - Recibo COMPLETO', true);
+    }else{
+      toast('✓ Pago registrado - Falta $'+(totalRecibo-nuevoTotalPagado).toFixed(2), true);
+    }
   }catch(e){
     alert('Error: '+e.message);
   }
