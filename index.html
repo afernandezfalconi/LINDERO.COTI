@@ -851,6 +851,45 @@ function irAlHome(){
     </div>
   </div>
 
+  <!-- SECCIÓN 9: EGRESOS (COSTOS DE MATERIALES) -->
+  <div class="sec-h"><div class="snum">9</div><div class="stit">📉 Egresos (Costo de Materiales)</div></div>
+  <div class="sec-b">
+    <div class="ni" style="margin-bottom:1rem">Registra aquí el costo real de los materiales utilizados para calcular la utilidad neta. Los egresos se guardan con la cotización.</div>
+
+    <!-- TABLA DE EGRESOS -->
+    <div style="overflow-x:auto;margin-bottom:1rem">
+      <table id="tabla-egresos" style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:.75rem">
+        <thead>
+          <tr style="background:var(--bg-soft);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:0.75rem;font-weight:600">Descripción</th>
+            <th style="text-align:right;padding:0.75rem;font-weight:600;width:120px">Cantidad</th>
+            <th style="text-align:right;padding:0.75rem;font-weight:600;width:120px">Costo Unit.</th>
+            <th style="text-align:right;padding:0.75rem;font-weight:600;width:120px">Total</th>
+            <th style="text-align:center;padding:0.75rem;font-weight:600;width:50px">✕</th>
+          </tr>
+        </thead>
+        <tbody id="egresos-tbody"></tbody>
+        <tfoot>
+          <tr style="border-top:1px solid var(--border);background:var(--bg-soft);font-weight:600">
+            <td colspan="3" style="padding:0.75rem;text-align:right">Total Egresos:</td>
+            <td style="padding:0.75rem;text-align:right;font-family:var(--fm)"><span id="total-egresos">$0.00</span></td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- AGREGAR EGRESO -->
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem">
+      <input type="text" id="egreso-desc" placeholder="Ej. Postes de concreto 12×12" style="flex:1;min-width:200px;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+      <input type="number" id="egreso-cant" placeholder="Cant." step="0.01" min="0" style="width:100px;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+      <input type="number" id="egreso-unit" placeholder="Costo unit." step="0.01" min="0" style="width:120px;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+      <button class="tb" onclick="agregarEgreso()" style="padding:0.6rem 1rem">➕ Agregar</button>
+    </div>
+
+    <div style="font-size:12px;color:var(--muted)">💡 Opcional: si tienes la cotización con pagos, los egresos se comparan automáticamente contra el costo presupuestado.</div>
+  </div>
+
 </div><!-- /fp -->
 
 <!-- RESULTADO -->
@@ -1710,6 +1749,18 @@ function nuevaCotizacion(){
   buildLados([]);
   updPortSel();
   document.getElementById('cli-f').value='';
+  // Reset pago y comprobante
+  document.getElementById('pagado').checked=false;
+  document.getElementById('fechaPago').value='';
+  document.getElementById('montoRecibido').value='';
+  document.getElementById('notasPago').value='';
+  comprobanteCarga=null;
+  document.getElementById('comprobante-preview').style.display='none';
+  document.getElementById('upload-status').textContent='—';
+  document.getElementById('pago-ui').style.display='none';
+  // Reset egresos
+  egresos=[];
+  renderizarEgresos();
   asignarFolioPreview();
   actualizarBotonGuardar();
   onDimChange();
@@ -1757,6 +1808,16 @@ function recopilarEstado(){
       comprobante: comprobanteCarga?.base64||null
     };
   }
+
+  // Egresos (costos de materiales)
+  if(egresos.length>0){
+    estado.egresos=egresos.map(eg=>({
+      desc:eg.desc,
+      cant:eg.cant,
+      unitario:eg.unitario
+    }));
+  }
+
   return estado;
 }
 
@@ -1973,6 +2034,15 @@ async function cargarCotizacion(key){
         document.getElementById('upload-status').style.color='var(--success)';
       }
       togglePagoUI();
+    }
+
+    // Cargar egresos si existen
+    if(data.egresos && data.egresos.length>0){
+      egresos=data.egresos.map(eg=>({...eg}));
+      renderizarEgresos();
+    }else{
+      egresos=[];
+      renderizarEgresos();
     }
 
     onDimChange(); // recalcula etiquetas + calc()
@@ -2473,7 +2543,60 @@ function limpiarComprobante(){
   document.getElementById('file-comprobante').value='';
 }
 
-// ── FINANZAS: INGRESOS, EGRESOS, UTILIDAD ─────────────────────────
+// ── EGRESOS: COSTOS DE MATERIALES ────────────────────────────────────
+let egresos=[]; // array de {desc, cant, unitario}
+
+function agregarEgreso(){
+  const desc=(document.getElementById('egreso-desc').value||'').trim();
+  const cant=parseFloat(document.getElementById('egreso-cant').value)||0;
+  const unitario=parseFloat(document.getElementById('egreso-unit').value)||0;
+
+  if(!desc || cant<=0 || unitario<=0){
+    toast('Completa descripción, cantidad y costo unitario', false);
+    return;
+  }
+
+  egresos.push({desc, cant, unitario});
+  renderizarEgresos();
+  document.getElementById('egreso-desc').value='';
+  document.getElementById('egreso-cant').value='';
+  document.getElementById('egreso-unit').value='';
+  document.getElementById('egreso-desc').focus();
+}
+
+function eliminarEgreso(idx){
+  egresos.splice(idx, 1);
+  renderizarEgresos();
+}
+
+function renderizarEgresos(){
+  const tbody=document.getElementById('egresos-tbody');
+  tbody.innerHTML='';
+  let total=0;
+
+  egresos.forEach((eg, idx)=>{
+    const subtotal=eg.cant*eg.unitario;
+    total+=subtotal;
+    const row=document.createElement('tr');
+    row.style.cssText='border-bottom:1px solid var(--border-soft)';
+    row.innerHTML=`
+      <td style="padding:0.6rem">${eg.desc}</td>
+      <td style="padding:0.6rem;text-align:right;font-family:var(--fm)">${eg.cant.toFixed(2)}</td>
+      <td style="padding:0.6rem;text-align:right;font-family:var(--fm)">$${eg.unitario.toFixed(2)}</td>
+      <td style="padding:0.6rem;text-align:right;font-family:var(--fm)">$${subtotal.toFixed(2)}</td>
+      <td style="padding:0.6rem;text-align:center"><button class="tb" style="padding:2px 8px;font-size:11px" onclick="eliminarEgreso(${idx})">✕</button></td>
+    `;
+    tbody.appendChild(row);
+  });
+
+  document.getElementById('total-egresos').textContent=$m(total);
+}
+
+function calcularTotalEgresos(){
+  return egresos.reduce((sum, eg)=>sum+(eg.cant*eg.unitario), 0);
+}
+
+// ── FINANZAS: INGRESOS, EGRESOS, UTILIDAD ─────────────────────────────
 let finanzasDataCache=null; // cache de cotizaciones completas
 
 async function abrirFinanzas(){
@@ -2611,9 +2734,22 @@ function filtrarFinanzas(){
       return true;
     });
 
+  // Filtrar egresos (todas las cotizaciones con egresos registrados)
+  const egresosData=finanzasDataCache
+    .filter(c=>c.data.egresos&&c.data.egresos.length>0)
+    .flatMap(c=>
+      c.data.egresos.map(eg=>({
+        folio:c.folio,
+        cliente:c.cliente,
+        desc:eg.desc,
+        cant:eg.cant,
+        unitario:eg.unitario,
+        total:eg.cant*eg.unitario
+      }))
+    );
+
   const totalIngresos=ingresos.reduce((sum,i)=>sum+i.monto,0);
-  const egresos=[]; // placeholder
-  const totalEgresos=egresos.reduce((sum,e)=>sum+e.monto,0);
+  const totalEgresos=egresosData.reduce((sum,e)=>sum+e.total,0);
   const utilidadNeta=totalIngresos-totalEgresos;
 
   let html='';
@@ -2649,14 +2785,50 @@ function filtrarFinanzas(){
   // Sección de Egresos
   html+='<div style="border:1px solid var(--border);border-radius:8px;padding:1rem">';
   html+='<div style="font-weight:600;color:var(--red);margin-bottom:0.75rem">📉 Egresos (Costo de Materiales)</div>';
-  html+='<div style="color:var(--muted);font-size:13px;text-align:center;padding:1rem;background:var(--bg-soft);border-radius:6px">⚠️ Módulo de egresos en desarrollo<br/>Se agregará la capacidad de registrar costos reales de materiales por cotización</div>';
+  if(egresosData.length===0){
+    html+='<div style="color:var(--muted);font-size:13px;text-align:center;padding:1rem">Sin egresos registrados en este período</div>';
+  }else{
+    html+='<table style="width:100%;font-size:13px;border-collapse:collapse">';
+    html+='<thead><tr style="border-bottom:1px solid var(--border)">';
+    html+='<th style="text-align:left;padding:0.5rem;padding-bottom:0.75rem">Folio</th>';
+    html+='<th style="text-align:left;padding:0.5rem;padding-bottom:0.75rem">Cliente</th>';
+    html+='<th style="text-align:left;padding:0.5rem;padding-bottom:0.75rem">Descripción</th>';
+    html+='<th style="text-align:right;padding:0.5rem;padding-bottom:0.75rem">Cantidad</th>';
+    html+='<th style="text-align:right;padding:0.5rem;padding-bottom:0.75rem">Costo Unit.</th>';
+    html+='<th style="text-align:right;padding:0.5rem;padding-bottom:0.75rem">Total</th>';
+    html+='</tr></thead><tbody>';
+    egresosData.forEach(eg=>{
+      html+='<tr style="border-bottom:1px solid var(--border-soft)">';
+      html+='<td style="padding:0.6rem 0.5rem;font-family:var(--fm)">'+eg.folio+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem">'+eg.cliente+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem">'+eg.desc+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem;text-align:right;font-family:var(--fm)">'+eg.cant.toFixed(2)+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem;text-align:right;font-family:var(--fm)">'+$m(eg.unitario)+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem;text-align:right;font-family:var(--fm)">'+$m(eg.total)+'</td>';
+      html+='</tr>';
+    });
+    html+='</tbody></table>';
+    html+='<div style="text-align:right;padding-top:0.75rem;border-top:1px solid var(--border);font-weight:600;font-family:var(--fm)">Total: '+$m(totalEgresos)+'</div>';
+  }
   html+='</div>';
 
   // Sección de Utilidad Neta
-  html+='<div style="background:var(--accent);border-radius:8px;padding:1.25rem;color:var(--fg);text-align:center">';
-  html+='<div style="font-size:13px;opacity:0.9;margin-bottom:0.5rem">Utilidad Neta (Ingresos − Egresos)</div>';
-  html+='<div style="font-size:28px;font-weight:700;font-family:var(--fm)">'+$m(utilidadNeta)+'</div>';
-  html+='<div style="font-size:11px;opacity:0.7;margin-top:0.5rem;font-family:var(--fm)">'+ingresos.length+' pago(s) en este período</div>';
+  html+='<div style="background:var(--accent);border-radius:8px;padding:1.25rem;color:var(--fg)">';
+  html+='<div style="font-size:13px;opacity:0.9;margin-bottom:1rem;text-align:center">Utilidad Neta</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">';
+  html+='<div style="text-align:left;padding-bottom:0.75rem;border-bottom:1px solid rgba(255,255,255,0.2)">';
+  html+='<div style="font-size:11px;opacity:0.8">Ingresos</div>';
+  html+='<div style="font-size:18px;font-weight:700;font-family:var(--fm);color:#5AEF63">'+$m(totalIngresos)+'</div>';
+  html+='<div style="font-size:10px;opacity:0.7;margin-top:.25rem">'+ingresos.length+' pago(s)</div>';
+  html+='</div>';
+  html+='<div style="text-align:left;padding-bottom:0.75rem;border-bottom:1px solid rgba(255,255,255,0.2)">';
+  html+='<div style="font-size:11px;opacity:0.8">Egresos</div>';
+  html+='<div style="font-size:18px;font-weight:700;font-family:var(--fm);color:#FF6B6B">−'+$m(totalEgresos)+'</div>';
+  html+='<div style="font-size:10px;opacity:0.7;margin-top:.25rem">'+egresosData.length+' gasto(s)</div>';
+  html+='</div>';
+  html+='</div>';
+  html+='<div style="font-size:13px;opacity:0.9;margin-bottom:0.5rem;text-align:center">=</div>';
+  html+='<div style="font-size:32px;font-weight:700;font-family:var(--fm);text-align:center">'+$m(utilidadNeta)+'</div>';
   html+='</div>';
 
   document.getElementById('finanzas-content').innerHTML=html;
