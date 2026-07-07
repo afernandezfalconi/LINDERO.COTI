@@ -1879,6 +1879,21 @@ async function guardarCotizacion(){
   estado.resumenTotal=total;
   estado.resumenCliente=nombre;
 
+  // Capturar detalles para landing page
+  estado.resumenDetalles={
+    forma: document.getElementById('r-fo').textContent,
+    perim: document.getElementById('r-pe').textContent,
+    area: document.getElementById('r-area').textContent,
+    sep: document.getElementById('r-se').textContent,
+    porton: document.getElementById('r-po').textContent,
+    postesLinea: document.getElementById('r-pl').textContent,
+    postesEsq: document.getElementById('r-pe2').textContent,
+    material: document.getElementById('r-ma').textContent,
+    modo: document.getElementById('r-mo').textContent,
+    alambre: document.getElementById('r-ml').textContent + ' · ' + document.getElementById('r-rl').textContent,
+    mo: document.getElementById('r-mo2').textContent
+  };
+
   const btn=document.getElementById('btn-guardar');
   const txtPrev=btn?btn.textContent:'';
   if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
@@ -2411,6 +2426,12 @@ function imprimirCotizacion(){
   const desgloseTable=document.getElementById('ph-desglose-costos');
   if(tipo==='cliente'){
     desgloseTable.style.display='none';
+    // Mostrar URL de landing page para compartir
+    const folio = document.getElementById('cli-f').value || 'COT-000';
+    const landingURL = 'https://lindero-coti-api.lindero-coti.workers.dev/landing/' + encodeURIComponent(folio);
+    setTimeout(() => {
+      alert('📋 LANDING PAGE PARA COMPARTIR:\n\n' + landingURL + '\n\nCopia esta URL y comparte con tu cliente.');
+    }, 500);
   } else {
     desgloseTable.style.display='table';
   }

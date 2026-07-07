@@ -286,6 +286,122 @@ Abre la aplicación:</p>
         }
       }
 
+      // Landing page pública (sin auth) para compartir con cliente
+      const mLanding = path.match(/^\/landing\/(.+)$/);
+      if (request.method === 'GET' && mLanding) {
+        const id = decodeURIComponent(mLanding[1]);
+        const v = await env.COTIZACIONES.get(KV_PREFIX + id);
+        if (!v) return json({ error: 'Cotización no encontrada' }, 404, origin);
+
+        const rec = JSON.parse(v);
+
+        // Generar landing page HTML
+        const detallesLote = `
+          <tr><td>Forma</td><td>${rec.resumenDetalles?.forma || '—'}</td></tr>
+          <tr><td>Perímetro</td><td>${rec.resumenDetalles?.perim || '—'}</td></tr>
+          <tr><td>Área</td><td>${rec.resumenDetalles?.area || '—'}</td></tr>
+          <tr><td>Separación</td><td>${rec.resumenDetalles?.sep || '—'}</td></tr>
+          <tr><td>Portón</td><td>${rec.resumenDetalles?.porton || '—'}</td></tr>
+        `;
+
+        const materialesLote = `
+          <tr><td>Postes línea</td><td>${rec.resumenDetalles?.postesLinea || '—'}</td></tr>
+          <tr><td>Postes esquineros</td><td>${rec.resumenDetalles?.postesEsq || '—'}</td></tr>
+          <tr><td>Material</td><td>${rec.resumenDetalles?.material || '—'}</td></tr>
+          <tr><td>Modo</td><td>${rec.resumenDetalles?.modo || '—'}</td></tr>
+          <tr><td>Alambre</td><td>${rec.resumenDetalles?.alambre || '—'}</td></tr>
+          <tr><td>Mano de obra</td><td>${rec.resumenDetalles?.mo || '—'}</td></tr>
+        `;
+
+        const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cotización ${rec.resumenFolio} - Lindero</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #333; line-height: 1.6; }
+    .container { max-width: 800px; margin: 2rem auto; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .header { border-bottom: 3px solid #13241f; padding-bottom: 1.5rem; margin-bottom: 2rem; }
+    .logo { font-size: 1.5rem; font-weight: bold; color: #13241f; margin-bottom: 0.5rem; }
+    .fecha { font-size: 0.9rem; color: #666; }
+    .cliente { background: #f9f9f9; padding: 1rem; border-radius: 6px; margin-bottom: 2rem; border-left: 4px solid #89D7B7; }
+    .cliente-label { font-weight: 600; color: #13241f; }
+    .cliente-value { color: #555; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+    th { background: #13241f; color: white; padding: 0.75rem; text-align: left; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; }
+    td { padding: 0.75rem; border-bottom: 1px solid #ddd; }
+    tr:hover { background: #f9f9f9; }
+    .total-section { background: #13241f; color: white; padding: 2rem; border-radius: 8px; text-align: center; margin-top: 2rem; }
+    .total-label { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; }
+    .total-valor { font-size: 2.5rem; font-weight: bold; color: #89D7B7; margin: 0.5rem 0; }
+    .notas { background: #f0f8f6; border-left: 4px solid #89D7B7; padding: 1rem; border-radius: 4px; margin-top: 2rem; font-size: 0.9rem; color: #555; }
+    .notas strong { color: #13241f; }
+    .footer { margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #ddd; text-align: center; color: #666; font-size: 0.85rem; }
+    .vigencia { background: #fff3cd; border-left: 4px solid #ffc107; padding: 1rem; border-radius: 4px; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">🚧 LINDERO</div>
+      <div class="fecha">Folio: ${rec.resumenFolio}</div>
+      <div class="fecha">Cotización válida por ${rec.campos?.['emp-vigencia'] || '15 días naturales'}</div>
+    </div>
+
+    <div class="cliente">
+      <div class="cliente-label">Cliente</div>
+      <div class="cliente-value">${rec.resumenCliente || '—'}</div>
+      ${rec.campos?.['cli-u'] ? `<div style="margin-top:0.5rem;"><span class="cliente-label">Ubicación:</span> <span class="cliente-value">${rec.campos['cli-u']}</span></div>` : ''}
+    </div>
+
+    <h3 style="color:#13241f;margin-bottom:1rem">Detalle del Lote</h3>
+    <table>
+      <tbody>
+        ${detallesLote}
+      </tbody>
+    </table>
+
+    <h3 style="color:#13241f;margin-bottom:1rem">Materiales y Mano de Obra</h3>
+    <table>
+      <tbody>
+        ${materialesLote}
+      </tbody>
+    </table>
+
+    <div class="total-section">
+      <div class="total-label">Precio Total</div>
+      <div class="total-valor">${rec.resumenTotal || '$—'}</div>
+      <div style="font-size:0.9rem;margin-top:1rem;opacity:0.9">Incluye materiales, instalación y mano de obra</div>
+    </div>
+
+    <div class="vigencia">
+      <strong>⏰ Vigencia de la cotización:</strong> ${rec.campos?.['emp-vigencia'] || '15 días naturales'} a partir de la fecha de emisión.
+    </div>
+
+    <div class="notas">
+      <strong>📌 Importante:</strong> Los costos de materiales de construcción están sujetos a fluctuaciones del mercado. Cambios significativos en los precios pueden afectar esta cotización independientemente de su vigencia. En tal caso, se notificará al cliente antes de iniciar el proyecto.
+    </div>
+
+    <div class="footer">
+      <p>Cotización generada por LINDERO • Cotizador de Posteo</p>
+      <p>LÍMITES. PROTECCIÓN. PRECISIÓN.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+        return new Response(html, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600',
+            ...corsHeaders(origin),
+          },
+        });
+      }
+
       return json({ error: 'Ruta no encontrada' }, 404, origin);
     } catch (e) {
       return json({ error: String((e && e.message) || e) }, 500, origin);
