@@ -3424,7 +3424,7 @@ function cerrarProveedores(){
 function crearPanelProveedores(){
   const modalHTML=`
   <div id="providers-modal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999">
-    <div style="background:white;border-radius:8px;max-width:1000px;width:90%;max-height:90vh;overflow:auto;padding:2rem">
+    <div style="background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:8px;max-width:1000px;width:90%;max-height:90vh;overflow:auto;padding:2rem">
       <h2 style="margin-top:0">🏭 Gestión de Proveedores</h2>
 
       <div style="margin-bottom:2rem;padding:1rem;background:var(--bg3);border-radius:6px">
@@ -3493,19 +3493,19 @@ async function cargarProveedores(){
         </div>
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;margin:1rem 0;font-size:12px">
-          <div style="background:white;padding:0.5rem;border-radius:4px">
+          <div style="background:var(--bg3);padding:0.5rem;border-radius:4px">
             <div style="color:var(--muted)">Mín</div>
             <div style="font-weight:bold">$${precioMin}</div>
           </div>
-          <div style="background:white;padding:0.5rem;border-radius:4px">
+          <div style="background:var(--bg3);padding:0.5rem;border-radius:4px">
             <div style="color:var(--muted)">Máx</div>
             <div style="font-weight:bold">$${precioMax}</div>
           </div>
-          <div style="background:white;padding:0.5rem;border-radius:4px">
+          <div style="background:var(--bg3);padding:0.5rem;border-radius:4px">
             <div style="color:var(--muted)">Datos</div>
             <div style="font-weight:bold">${stats.length}</div>
           </div>
-          <div style="background:white;padding:0.5rem;border-radius:4px">
+          <div style="background:var(--bg3);padding:0.5rem;border-radius:4px">
             <div style="color:var(--muted)">📞</div>
             <div style="font-weight:bold;font-size:10px">${p.contacto?.telefono||'—'}</div>
           </div>
@@ -3625,7 +3625,7 @@ async function mostrarGraficoVolatilidad(providerId){
 
     const modalHTML=`
     <div id="chart-modal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10000">
-      <div style="background:white;border-radius:8px;width:90%;max-width:800px;padding:2rem">
+      <div style="background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:8px;width:90%;max-width:800px;padding:2rem">
         <h3 style="margin-top:0">${provider.nombre} - Volatilidad de Precios</h3>
         <canvas id="chart-canvas" style="max-height:400px"></canvas>
         <button class="btnp" onclick="document.getElementById('chart-modal').remove()" style="width:100%;margin-top:1rem">Cerrar</button>
@@ -3708,7 +3708,7 @@ function abrirRegistroPago(){
 
   const modalHTML=`
   <div id="modal-pago" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999">
-    <div style="background:white;border-radius:8px;padding:2rem;max-width:500px;width:90%">
+    <div style="background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:2rem;max-width:500px;width:90%">
       <h3 style="margin-top:0">Registrar Pago - ${folio}</h3>
 
       <div style="background:var(--bg3);padding:1rem;border-radius:6px;margin-bottom:1.5rem">
