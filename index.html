@@ -3650,14 +3650,21 @@ function actualizarTotalIVA(){
 }
 
 function abrirRegistroPago(){
-  const folio=document.getElementById('cli-f').value;
-  if(!folio||folio===''){
+  const folio=document.getElementById('cli-f')?.value;
+  const totalEl=document.getElementById('r-to');
+
+  if(!folio||folio==='' || !totalEl){
     alert('Guarda la cotización primero para registrar pagos');
     return;
   }
 
-  const totalRecibo=parseFloat(document.getElementById('r-to').textContent.replace('$',''))||0;
-  const faltaPagar=totalRecibo-totalPagado;
+  const totalRecibo=parseFloat(totalEl.textContent.replace('$','').trim())||0;
+  if(totalRecibo<=0){
+    alert('La cotización debe tener un total mayor a $0');
+    return;
+  }
+
+  const faltaPagar=Math.max(0, totalRecibo-totalPagado);
 
   const modalHTML=`
   <div id="modal-pago" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999">
