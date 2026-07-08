@@ -862,8 +862,12 @@ function irAlHome(){
         <div id="upload-status" style="margin-top:.75rem;font-size:12px;color:var(--muted)">—</div>
         <div id="comprobante-preview" style="margin-top:.75rem;display:none">
           <div style="font-size:12px;color:var(--success);margin-bottom:.5rem">✅ Comprobante subido</div>
-          <button class="tb" onclick="descargarComprobante()" style="width:100%;margin-bottom:.5rem">📥 Descargar comprobante</button>
-          <button class="tb" onclick="limpiarComprobante()" style="width:100%;background:var(--bg-hover)">🗑 Eliminar comprobante</button>
+          <img id="comprobante-thumb" style="display:none;max-width:100%;max-height:200px;border:1px solid var(--border);border-radius:6px;margin-bottom:.5rem;cursor:pointer" onclick="verComprobante()" title="Clic para ver en grande">
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+            <button class="tb" onclick="verComprobante()" style="flex:1;min-width:110px;justify-content:center"><i class="ti ti-eye" aria-hidden="true"></i> Ver</button>
+            <button class="tb" onclick="descargarComprobante()" style="flex:1;min-width:110px;justify-content:center"><i class="ti ti-download" aria-hidden="true"></i> Descargar</button>
+            <button class="tb del" onclick="limpiarComprobante()" style="flex:1;min-width:110px;justify-content:center"><i class="ti ti-trash" aria-hidden="true"></i> Eliminar</button>
+          </div>
         </div>
       </div>
     </div>
@@ -2177,6 +2181,7 @@ async function cargarCotizacion(key){
         document.getElementById('comprobante-preview').style.display='block';
         document.getElementById('upload-status').textContent='✅ Comprobante guardado';
         document.getElementById('upload-status').style.color='var(--success)';
+        mostrarThumbComprobante();
       }
       togglePagoUI();
     }
@@ -2864,6 +2869,7 @@ async function procesarArchivoComprobante(file){
     status.textContent='✅ Comprobante cargado: '+file.name;
     status.style.color='var(--success)';
     document.getElementById('comprobante-preview').style.display='block';
+    mostrarThumbComprobante();
   };
   reader.onerror=()=>{
     status.textContent='❌ Error al leer el archivo';
@@ -2872,31 +2878,57 @@ async function procesarArchivoComprobante(file){
   reader.readAsDataURL(file);
 }
 
-async function descargarComprobante(){
-  if(!cotizacionActualKey){
-    toast('Guarda la cotización primero', false);
-    return;
-  }
+// Convierte el data URL del comprobante en un Blob (para ver/descargar)
+function comprobanteBlob(){
+  if(!comprobanteCarga || !comprobanteCarga.base64) return null;
+  const du=comprobanteCarga.base64;
+  const partes=du.split(',');
+  const mime=(partes[0].match(/data:([^;]+)/)||[])[1]||'application/octet-stream';
   try{
-    const resp=await fetch(`${API_BASE}/api/cotizaciones/${encodeURIComponent(cotizacionActualKey)}/voucher`,{
-      headers:{'X-App-Password':localStorage.getItem(PW_KEY)||''}
-    });
-    if(!resp.ok) throw new Error('No se encontró comprobante');
-    const blob=await resp.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;
-    a.download=cotizacionActualKey+'-voucher';
-    a.click();
-    URL.revokeObjectURL(url);
-  }catch(e){
-    toast('Error descargando comprobante: '+((e&&e.message)||e), false);
+    const bin=atob(partes[1]);
+    const arr=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    return {blob:new Blob([arr],{type:mime}), mime};
+  }catch(e){ return null; }
+}
+
+function verComprobante(){
+  if(!comprobanteCarga || !comprobanteCarga.base64){ toast('No hay comprobante para ver', false); return; }
+  const b=comprobanteBlob();
+  if(b){
+    const url=URL.createObjectURL(b.blob);
+    window.open(url,'_blank');
+    setTimeout(()=>URL.revokeObjectURL(url), 60000);
+  }else{
+    window.open(comprobanteCarga.base64,'_blank'); // fallback
   }
+}
+
+function descargarComprobante(){
+  if(!comprobanteCarga || !comprobanteCarga.base64){ toast('No hay comprobante para descargar', false); return; }
+  const b=comprobanteBlob();
+  const ext=(b?{'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[b.mime]:'')||'';
+  const baseNombre=(comprobanteCarga.nombre && comprobanteCarga.nombre!=='(comprobante guardado)') ? comprobanteCarga.nombre : ('comprobante-'+(cotizacionActualKey||'pago')+(ext?('.'+ext):''));
+  const a=document.createElement('a');
+  a.href = b ? URL.createObjectURL(b.blob) : comprobanteCarga.base64;
+  a.download=baseNombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  if(b) setTimeout(()=>URL.revokeObjectURL(a.href), 60000);
+}
+
+// Muestra la miniatura si el comprobante es imagen
+function mostrarThumbComprobante(){
+  const img=document.getElementById('comprobante-thumb');
+  if(!img) return;
+  const du=comprobanteCarga && comprobanteCarga.base64;
+  if(du && /^data:image\//.test(du)){ img.src=du; img.style.display='block'; }
+  else{ img.removeAttribute('src'); img.style.display='none'; }
 }
 
 function limpiarComprobante(){
   comprobanteCarga=null;
   document.getElementById('comprobante-preview').style.display='none';
+  const thumb=document.getElementById('comprobante-thumb'); if(thumb){ thumb.removeAttribute('src'); thumb.style.display='none'; }
   document.getElementById('upload-status').textContent='—';
   document.getElementById('file-comprobante').value='';
 }
