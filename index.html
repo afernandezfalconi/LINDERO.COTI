@@ -3953,7 +3953,7 @@ function abrirRegistroPago(){
     return;
   }
 
-  const totalRecibo=parseFloat(totalEl.textContent.replace('$','').trim())||0;
+  const totalRecibo=parseFloat((totalEl.textContent||'').replace(/[$,]/g,'').trim())||0;
   if(totalRecibo<=0){
     alert('La cotización debe tener un total mayor a $0');
     return;
@@ -4044,7 +4044,7 @@ async function guardarPago(){
   const metodo=document.getElementById('metodo-input').value;
   const comprobante=document.getElementById('comprobante-input').value.trim();
   const descripcion=document.getElementById('descripcion-input').value;
-  const totalRecibo=parseFloat(document.getElementById('r-to').textContent.replace('$',''))||0;
+  const totalRecibo=parseFloat((document.getElementById('r-to').textContent||'').replace(/[$,]/g,''))||0;
   const nuevoTotalPagado=totalPagado+monto;
 
   // Validaciones
