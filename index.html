@@ -831,7 +831,10 @@ function irAlHome(){
     </div>
   </div>
 
-  <!-- SECCIÓN 8: PAGO Y COMPROBANTE -->
+  <!-- SECCIÓN 8: PAGO Y COMPROBANTE — OCULTA: los pagos se unificaron en "Recibos de Pago".
+       Se mantiene en el DOM (oculto) como respaldo de datos: el registro de pago rellena
+       estos campos para que Finanzas, el resumen y la exportación sigan funcionando. -->
+  <div id="sec8-wrap" style="display:none">
   <div class="sec-h"><div class="snum">8</div><div class="stit">💳 Pago y comprobante</div></div>
   <div class="sec-b">
     <div class="f">
@@ -872,6 +875,7 @@ function irAlHome(){
       </div>
     </div>
   </div>
+  </div><!-- /sec8-wrap -->
 
   <!-- SECCIÓN 9: EGRESOS (COSTOS DE MATERIALES) -->
   <div class="sec-h"><div class="snum">9</div><div class="stit">📉 Egresos (Costo de Materiales)</div></div>
@@ -3982,6 +3986,34 @@ async function mostrarGraficoVolatilidad(providerId){
 // ── FASE 5: RECIBOS DE PAGO ───────────────────────────────────────
 let recibosActuales=[];
 let totalPagado=0;
+let pagoComprobanteArchivo=null; // data URL del comprobante-archivo del pago en curso
+
+// Lee el archivo de comprobante del modal Registrar Pago y lo guarda como data URL
+function cargarComprobantePago(e){
+  const file=e.target.files&&e.target.files[0];
+  if(!file) return;
+  if(file.size>5*1024*1024){ alert('Archivo muy grande (máx 5 MB)'); e.target.value=''; return; }
+  if(!['application/pdf','image/jpeg','image/png','image/webp'].includes(file.type)){ alert('Solo PDF o imágenes'); e.target.value=''; return; }
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    pagoComprobanteArchivo=ev.target.result;
+    const t=document.getElementById('pago-file-thumb');
+    if(t){ if(/^data:image\//.test(pagoComprobanteArchivo)){ t.src=pagoComprobanteArchivo; t.style.display='block'; } else { t.style.display='none'; } }
+  };
+  reader.readAsDataURL(file);
+}
+
+// Helpers genéricos para ver/descargar un data URL (comprobante-archivo)
+function _dataUrlToBlob(du){
+  const p=du.split(','); const mime=(p[0].match(/data:([^;]+)/)||[])[1]||'application/octet-stream';
+  const bin=atob(p[1]); const arr=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+  return {blob:new Blob([arr],{type:mime}), mime};
+}
+function verArchivo(du){ if(!du) return; try{ const b=_dataUrlToBlob(du); const u=URL.createObjectURL(b.blob); window.open(u,'_blank'); setTimeout(()=>URL.revokeObjectURL(u),60000);}catch(e){ window.open(du,'_blank'); } }
+function descargarArchivo(du,nombre){ if(!du) return; try{ const b=_dataUrlToBlob(du); const ext={'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[b.mime]||''; const a=document.createElement('a'); a.href=URL.createObjectURL(b.blob); a.download=(nombre||'comprobante')+(ext?('.'+ext):''); document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);}catch(e){} }
+function verComprobantePago(i){ const p=recibosActuales[0]&&recibosActuales[0].historiaPagos&&recibosActuales[0].historiaPagos[i]; if(p&&p.comprobanteArchivo) verArchivo(p.comprobanteArchivo); }
+function descargarComprobantePago(i){ const p=recibosActuales[0]&&recibosActuales[0].historiaPagos&&recibosActuales[0].historiaPagos[i]; if(p&&p.comprobanteArchivo) descargarArchivo(p.comprobanteArchivo,'comprobante-pago-'+(i+1)); }
 
 function actualizarTotalIVA(){
   const incluir=document.getElementById('incluirIVA').checked;
@@ -4060,6 +4092,12 @@ function abrirRegistroPago(){
         <div>
           <label style="font-size:12px;color:var(--muted)">Descripción (ej. 50% inicial)</label>
           <input id="descripcion-input" type="text" placeholder="Opcional" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:4px">
+        </div>
+
+        <div>
+          <label style="font-size:12px;color:var(--muted)">📎 Comprobante (archivo PDF/imagen, opcional)</label>
+          <input type="file" id="pago-file" accept=".pdf,image/*" onchange="cargarComprobantePago(event)" style="width:100%;font-size:12px;color:var(--muted);padding:.4rem 0">
+          <img id="pago-file-thumb" style="display:none;max-width:100%;max-height:150px;border:1px solid var(--border);border-radius:4px;margin-top:.5rem">
         </div>
       </div>
 
@@ -4153,6 +4191,7 @@ async function guardarPago(){
           metodo,
           monto,
           comprobante,
+          comprobanteArchivo:pagoComprobanteArchivo||'',
           descripcion
         })
       });
@@ -4166,7 +4205,7 @@ async function guardarPago(){
       const pagoResp=await fetch(API_BASE+'/api/receipts/'+recibo.numero+'/payment', {
         method:'POST',
         headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
-        body:JSON.stringify({monto,metodo,comprobante,descripcion})
+        body:JSON.stringify({monto,metodo,comprobante,comprobanteArchivo:pagoComprobanteArchivo||'',descripcion})
       });
 
       if(!pagoResp.ok) throw new Error('Error al registrar pago');
@@ -4174,14 +4213,24 @@ async function guardarPago(){
       recibosActuales=[recibActual];
     }
 
+    pagoComprobanteArchivo=null;
     cerrarRegistroPago();
     await cargarRecibos();
 
-    const nuevoEstado=await cargarRecibos();
-    if(recibosActuales.length>0&&recibosActuales[0].pago.estado==='completo'){
-      toast('✓ Pago registrado - Recibo COMPLETO', true);
+    // Sincronizar el pago con la cotización -> Finanzas, resumen y exportación
+    const rec=recibosActuales[0];
+    const pagadoTotal=(rec&&rec.historiaPagos)?rec.historiaPagos.reduce((s,p)=>s+(p.monto||0),0):0;
+    const completo=!!(rec&&rec.pago&&rec.pago.estado==='completo');
+    try{
+      await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio), {method:'PUT', body:JSON.stringify({pago:{pagado:completo, montoRecibido:pagadoTotal, fechaPago:new Date().toISOString().slice(0,10)}})});
+      const chk=document.getElementById('pagado'); if(chk) chk.checked=completo;
+      const mr=document.getElementById('montoRecibido'); if(mr) mr.value=pagadoTotal;
+    }catch(e){ /* no bloquear el registro del pago por esto */ }
+
+    if(completo){
+      toast('✓ Pago registrado — Recibo COMPLETO', true);
     }else{
-      toast('✓ Pago registrado - Falta $'+(totalRecibo-nuevoTotalPagado).toFixed(2), true);
+      toast('✓ Pago registrado — Falta $'+(totalRecibo-nuevoTotalPagado).toFixed(2), true);
     }
   }catch(e){
     alert('Error: '+e.message);
@@ -4227,11 +4276,17 @@ async function cargarRecibos(){
       // Historial de pagos
       const tablaDiv=document.getElementById('pagos-tabla');
       tablaDiv.innerHTML='';
-      recibo.historiaPagos.forEach(pago=>{
+      recibo.historiaPagos.forEach((pago,i)=>{
         const fecha=new Date(pago.fecha).toLocaleDateString('es-MX');
-        const fila=`<div style="background:var(--bg3);padding:0.5rem;border-radius:4px;display:flex;justify-content:space-between">
-          <div><strong>${fecha}</strong> ${pago.metodo} ${pago.comprobante?' ('+pago.comprobante+')':''}</div>
-          <div style="text-align:right"><strong style="color:var(--green)">+$${pago.monto.toFixed(2)}</strong></div>
+        const acciones = pago.comprobanteArchivo ? `<div style="display:flex;gap:.4rem;margin-top:.35rem">
+            <button class="tb" style="padding:2px 8px;font-size:10px" onclick="verComprobantePago(${i})"><i class="ti ti-eye" aria-hidden="true"></i> Ver</button>
+            <button class="tb" style="padding:2px 8px;font-size:10px" onclick="descargarComprobantePago(${i})"><i class="ti ti-download" aria-hidden="true"></i> Descargar</button>
+          </div>` : '';
+        const fila=`<div style="background:var(--bg3);padding:0.5rem;border-radius:4px">
+          <div style="display:flex;justify-content:space-between">
+            <div><strong>${fecha}</strong> ${pago.metodo} ${pago.comprobante?' ('+pago.comprobante+')':''}</div>
+            <div style="text-align:right"><strong style="color:var(--green)">+$${pago.monto.toFixed(2)}</strong></div>
+          </div>${acciones}
         </div>`;
         tablaDiv.insertAdjacentHTML('beforeend', fila);
       });

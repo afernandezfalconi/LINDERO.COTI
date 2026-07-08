@@ -319,6 +319,7 @@ async function createReceipt(env, receiptData) {
         monto: receiptData.monto || 0,
         metodo: receiptData.metodo || 'efectivo',
         comprobante: receiptData.comprobante || '',
+        comprobanteArchivo: receiptData.comprobanteArchivo || '',
         descripcion: receiptData.descripcion || ''
       }
     ]
@@ -361,6 +362,7 @@ async function addPayment(env, receiptNumber, payment) {
     monto: payment.monto,
     metodo: payment.metodo || 'efectivo',
     comprobante: payment.comprobante || '',
+    comprobanteArchivo: payment.comprobanteArchivo || '',
     descripcion: payment.descripcion || ''
   });
 
@@ -1033,6 +1035,7 @@ export default {
           metodo: body.metodo || 'efectivo',
           monto: body.monto || 0,
           comprobante: body.comprobante || '',
+          comprobanteArchivo: body.comprobanteArchivo || '',
           descripcion: body.descripcion || ''
         });
 
@@ -1067,6 +1070,7 @@ export default {
           monto: body.monto,
           metodo: body.metodo || 'efectivo',
           comprobante: body.comprobante || '',
+          comprobanteArchivo: body.comprobanteArchivo || '',
           descripcion: body.descripcion || ''
         });
 
