@@ -1009,6 +1009,7 @@ function irAlHome(){
       <div id="pagos-tabla" style="display:grid;gap:0.5rem;font-size:11px">
         <!-- Pagos se cargarán aquí -->
       </div>
+      <button class="tb ok" style="width:100%;justify-content:center;margin-top:.6rem" onclick="compartirRecibo()"><i class="ti ti-share" aria-hidden="true"></i> Compartir recibo con el cliente</button>
     </div>
   </div>
 
@@ -2601,28 +2602,46 @@ async function generarLinkLanding(){
   }
 }
 
-function mostrarLinkLanding(url){
+function mostrarLinkLanding(url, opts){
+  opts=opts||{};
+  const titulo=opts.titulo||'Link para compartir';
+  const desc=opts.desc||'Envía este enlace a tu cliente. Muestra la cotización sin tus costos internos. Vigencia 30 días.';
+  const pdfBtn = opts.pdfLocal===false ? '' : `<button class="btnp ghost" style="flex:1;min-width:120px" onclick="window.print()"><i class="ti ti-printer" aria-hidden="true"></i> PDF</button>`;
   let ov=document.getElementById('modal-landing');
-  if(!ov){
-    ov=document.createElement('div');
-    ov.id='modal-landing';
-    ov.style.cssText='display:flex;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1200;align-items:center;justify-content:center';
-    ov.innerHTML=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:1.5rem;max-width:520px;width:92%">
-      <h3 style="font-family:var(--fh);font-weight:600;margin-bottom:.4rem"><i class="ti ti-share" aria-hidden="true"></i> Link para compartir</h3>
-      <p style="font-size:12px;color:var(--muted);font-family:var(--fm);margin-bottom:1rem">Envía este enlace a tu cliente. Muestra la cotización sin tus costos internos. Vigencia 30 días.</p>
-      <input id="landing-url" type="text" readonly onclick="this.select()" style="width:100%;margin-bottom:1rem" value="">
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        <button class="btnp" style="flex:1;min-width:120px" onclick="copiarLinkLanding()"><i class="ti ti-copy" aria-hidden="true"></i> Copiar</button>
-        <button class="btnp ghost" style="flex:1;min-width:120px" onclick="window.open(document.getElementById('landing-url').value,'_blank')"><i class="ti ti-external-link" aria-hidden="true"></i> Abrir</button>
-        <button class="btnp ghost" style="flex:1;min-width:120px" onclick="window.print()"><i class="ti ti-printer" aria-hidden="true"></i> PDF</button>
-      </div>
-      <button class="btnp ghost" style="width:100%;margin-top:.75rem" onclick="document.getElementById('modal-landing').style.display='none'">Cerrar</button>
-    </div>`;
-    document.body.appendChild(ov);
-  }
+  if(ov) ov.remove();
+  ov=document.createElement('div');
+  ov.id='modal-landing';
+  ov.style.cssText='display:flex;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1200;align-items:center;justify-content:center';
+  ov.innerHTML=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:1.5rem;max-width:520px;width:92%">
+    <h3 style="font-family:var(--fh);font-weight:600;margin-bottom:.4rem"><i class="ti ti-share" aria-hidden="true"></i> ${titulo}</h3>
+    <p style="font-size:12px;color:var(--muted);font-family:var(--fm);margin-bottom:1rem">${desc}</p>
+    <input id="landing-url" type="text" readonly onclick="this.select()" style="width:100%;margin-bottom:1rem" value="">
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <button class="btnp" style="flex:1;min-width:120px" onclick="copiarLinkLanding()"><i class="ti ti-copy" aria-hidden="true"></i> Copiar</button>
+      <button class="btnp ghost" style="flex:1;min-width:120px" onclick="window.open(document.getElementById('landing-url').value,'_blank')"><i class="ti ti-external-link" aria-hidden="true"></i> Abrir</button>
+      ${pdfBtn}
+    </div>
+    <button class="btnp ghost" style="width:100%;margin-top:.75rem" onclick="document.getElementById('modal-landing').style.display='none'">Cerrar</button>
+  </div>`;
+  document.body.appendChild(ov);
   ov.style.display='flex';
   document.getElementById('landing-url').value=url;
   try{ navigator.clipboard.writeText(url); toast('✓ Link copiado al portapapeles', true); }catch(e){}
+}
+
+// Genera el link público del RECIBO DE PAGO para compartir con el cliente
+async function compartirRecibo(){
+  if(!recibosActuales || recibosActuales.length===0){
+    alert('Registra un pago primero (botón "Registrar Pago") para generar el recibo del cliente.');
+    return;
+  }
+  const numero=recibosActuales[0].numero;
+  try{
+    const data=await apiFetch('/api/receipts/'+numero+'/share', {method:'POST'});
+    mostrarLinkLanding(data.url, {titulo:'Recibo de pago para el cliente', desc:'Envía este comprobante a tu cliente. Puede verlo online y descargarlo como PDF desde ahí. Vigencia 90 días.', pdfLocal:false});
+  }catch(e){
+    alert('No se pudo generar el recibo: '+((e&&e.message)||e));
+  }
 }
 
 function copiarLinkLanding(){

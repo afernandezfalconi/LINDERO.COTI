@@ -394,6 +394,19 @@ async function getLandingByToken(env, token) {
   return await env.COTIZACIONES.get(KV_PREFIX + folio);
 }
 
+// ── RECIBO PÚBLICO CON TOKEN ──────────────────────────────────────────
+async function generateReceiptToken(env, numero) {
+  const token = Math.random().toString(36).substring(2, 34);
+  await env.COTIZACIONES.put(TOKENS_PREFIX + 'recibo:' + token, numero, { expirationTtl: 90 * 24 * 3600 }); // 90 días
+  return token;
+}
+
+async function getReceiptByToken(env, token) {
+  const numero = await env.COTIZACIONES.get(TOKENS_PREFIX + 'recibo:' + token);
+  if (!numero) return null;
+  return await getReceiptByNumber(env, numero);
+}
+
 // ── VALIDACIÓN DE ENTRADA ─────────────────────────────────────────────
 function validateCotizacion(rec) {
   if (!rec || typeof rec !== 'object') return false;
@@ -595,6 +608,80 @@ export default {
           ...corsHeaders(origin),
         },
       });
+    }
+
+    // ── RECIBO DE PAGO PÚBLICO (con token, sin auth) ──────────────────
+    const mRecibo = path.match(/^\/recibo\/([a-z0-9]+)$/);
+    if (request.method === 'GET' && mRecibo) {
+      const receipt = await getReceiptByToken(env, mRecibo[1]);
+      if (!receipt) {
+        return new Response('Recibo no encontrado o expirado', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', ...corsHeaders(origin) } });
+      }
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const fmt = (n) => '$' + (Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const totalPagado = (receipt.historiaPagos || []).reduce((s, p) => s + (p.monto || 0), 0);
+      const total = receipt.totales?.total || 0;
+      const saldo = Math.max(0, total - totalPagado);
+      const estado = receipt.pago?.estado || 'pendiente';
+      const estadoLabel = estado === 'completo' ? 'PAGADO' : (estado === 'parcial' ? 'PAGO PARCIAL' : 'PENDIENTE');
+      const estadoColor = estado === 'completo' ? '#1d9e75' : (estado === 'parcial' ? '#ba7517' : '#993c1d');
+      const fechaStr = new Date(receipt.fecha).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
+      const pagosRows = (receipt.historiaPagos || []).map(p => {
+        const f = new Date(p.fecha).toLocaleDateString('es-MX');
+        return `<tr><td>${f}</td><td style="text-transform:capitalize">${esc(p.metodo)}</td><td>${esc(p.comprobante || '—')}</td><td style="text-align:right">${fmt(p.monto)}</td></tr>`;
+      }).join('');
+      const ivaRow = (receipt.impuestos?.incluirIVA && receipt.impuestos?.ivaValor) ? `<tr><td>IVA (16%)</td><td style="text-align:right">${fmt(receipt.impuestos.ivaValor)}</td></tr>` : '';
+
+      const html = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recibo de pago ${esc(receipt.folio)} - Lindero</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#eef1ef;color:#213b34;line-height:1.6;padding:1.5rem}
+  .card{max-width:640px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.08);overflow:hidden}
+  .top{background:#13241f;color:#fff;padding:1.75rem 2rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem}
+  .brand{font-size:1.4rem;font-weight:800;letter-spacing:.5px}
+  .brand span{color:#89D7B7}
+  .doc{font-size:.8rem;color:#89D7B7;text-transform:uppercase;letter-spacing:2px}
+  .body{padding:2rem}
+  .meta{display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5rem;font-size:.85rem;color:#5a6b64;margin-bottom:1.25rem}
+  .badge{display:inline-block;padding:.4rem 1.1rem;border-radius:999px;color:#fff;font-weight:700;font-size:.85rem;letter-spacing:1px;background:${estadoColor}}
+  .cliente{background:#f6f8f7;border-left:4px solid #89D7B7;padding:.9rem 1.1rem;border-radius:0 8px 8px 0;margin-bottom:1.5rem}
+  h3{font-size:.8rem;text-transform:uppercase;letter-spacing:1px;color:#5a6b64;margin:1.5rem 0 .6rem}
+  table{width:100%;border-collapse:collapse;font-size:.9rem}
+  th{background:#f0f3f1;text-align:left;padding:.55rem .7rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:#5a6b64}
+  td{padding:.55rem .7rem;border-bottom:1px solid #eaeeec}
+  .totales td{border:none;padding:.35rem .7rem}
+  .totales .big{font-size:1.15rem;font-weight:800;color:#0f6e56}
+  .pagado{background:#13241f;color:#fff;border-radius:10px;padding:1.4rem;text-align:center;margin-top:1.5rem}
+  .pagado .n{font-size:2.1rem;font-weight:800;color:#89D7B7}
+  .foot{text-align:center;font-size:.75rem;color:#8a9a93;padding:1.25rem 2rem 1.75rem}
+  .btn{display:block;width:100%;margin-top:1.5rem;padding:.9rem;background:#89D7B7;color:#07130f;border:none;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer}
+  @media print{ body{background:#fff;padding:0} .card{box-shadow:none;max-width:100%} .btn{display:none} }
+</style></head>
+<body>
+  <div class="card">
+    <div class="top">
+      <div><div class="brand">LINDERO<span>.COTI</span></div><div class="doc">Recibo de pago</div></div>
+      <div class="badge">${estadoLabel}</div>
+    </div>
+    <div class="body">
+      <div class="meta"><span>Recibo: <strong>${esc(receipt.numero)}</strong></span><span>Folio: <strong>${esc(receipt.folio)}</strong></span><span>Fecha: <strong>${fechaStr}</strong></span></div>
+      <div class="cliente"><strong>Cliente:</strong> ${esc(receipt.cliente?.nombre || '—')}</div>
+      <table class="totales"><tbody>
+        <tr><td>Total de la cotización</td><td style="text-align:right">${fmt(receipt.totales?.subtotal || total)}</td></tr>
+        ${ivaRow}
+        <tr><td><strong>Total a pagar</strong></td><td style="text-align:right" class="big">${fmt(total)}</td></tr>
+      </tbody></table>
+      <h3>Pagos registrados</h3>
+      <table><thead><tr><th>Fecha</th><th>Método</th><th>Comprobante</th><th style="text-align:right">Monto</th></tr></thead><tbody>${pagosRows || '<tr><td colspan="4">Sin pagos</td></tr>'}</tbody></table>
+      <div class="pagado"><div>Total pagado</div><div class="n">${fmt(totalPagado)}</div>${saldo > 0 ? `<div style="font-size:.85rem;color:#f0a">Saldo pendiente: ${fmt(saldo)}</div>` : ''}</div>
+      <button class="btn" onclick="window.print()">Descargar / Imprimir PDF</button>
+    </div>
+    <div class="foot">Este recibo fue generado por Lindero. Consérvalo como comprobante de tu pago.</div>
+  </div>
+</body></html>`;
+      return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600', 'X-Content-Type-Options': 'nosniff', ...corsHeaders(origin) } });
     }
 
     // ── RESTO DE ENDPOINTS REQUIEREN AUTENTICACIÓN ────────────────────
@@ -991,6 +1078,17 @@ export default {
           estado: updated.pago.estado
         });
         return json(updated, 200, origin);
+      }
+
+      // Generar link público del recibo para compartir con el cliente
+      if (request.method === 'POST' && path.match(/^\/api\/receipts\/[A-Z0-9:]+\/share$/)) {
+        const numero = path.split('/')[3];
+        const receipt = await getReceiptByNumber(env, numero);
+        if (!receipt) return json({ error: 'Recibo no encontrado' }, 404, origin);
+        const rtoken = await generateReceiptToken(env, numero);
+        const url = new URL(request.url).origin + '/recibo/' + rtoken;
+        await createAuditLog(env, user, 'SHARE_RECEIPT', numero);
+        return json({ token: rtoken, url }, 200, origin);
       }
 
       return json({ error: 'Ruta no encontrada' }, 404, origin);
