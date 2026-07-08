@@ -3114,9 +3114,9 @@ function filtrarFinanzas(){
     document.getElementById('filtro-rango-txt').textContent=new Date(desdeStr).toLocaleDateString('es-MX')+' → '+new Date(hastaStr).toLocaleDateString('es-MX');
   }
 
-  // Filtrar ingresos
+  // Filtrar ingresos: pagadas y NO canceladas (una cotización cancelada no es ingreso real)
   const ingresos=finanzasDataCache
-    .filter(c=>c.data.pago&&c.data.pago.pagado)
+    .filter(c=>c.data.pago&&c.data.pago.pagado && c.estatus!=='cancelada' && c.estatus!=='rechazada')
     .map(c=>({
       folio:c.folio,
       cliente:c.cliente,
