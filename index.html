@@ -1882,6 +1882,7 @@ function nuevaCotizacion(){
   updPortSel();
   document.getElementById('cli-f').value='';
   // Reset pago y comprobante
+  pagoActual=null;
   document.getElementById('pagado').checked=false;
   document.getElementById('fechaPago').value='';
   document.getElementById('montoRecibido').value='';
@@ -1926,21 +1927,9 @@ function recopilarEstado(){
   // Medidas de cada lado del lote (lgrid)
   estado.lados=[...document.getElementById('lgrid').querySelectorAll('input')].map(i=>i.value);
 
-  // Información de pago
-  const pagado=document.getElementById('pagado')?.checked||false;
-  const fechaPago=document.getElementById('fechaPago')?.value||'';
-  const montoRecibido=document.getElementById('montoRecibido')?.value;
-  const notasPago=document.getElementById('notasPago')?.value||'';
-
-  if(pagado||fechaPago||montoRecibido||notasPago||comprobanteCarga){
-    estado.pago={
-      pagado,
-      fechaPago,
-      montoRecibido: montoRecibido?parseFloat(montoRecibido):null,
-      notasPago,
-      comprobante: comprobanteCarga?.base64||null
-    };
-  }
+  // Información de pago — fuente única: el sistema de Recibos de Pago (pagoActual).
+  // Ya no se lee de la (oculta) sección 8. Se preserva el data.pago existente al re-guardar.
+  if(pagoActual) estado.pago=pagoActual;
 
   // Egresos (costos de materiales)
   if(egresos.length>0){
@@ -2175,6 +2164,7 @@ async function cargarCotizacion(key){
     }
 
     // Cargar información de pago si existe
+    pagoActual = data.pago || null; // fuente única para re-guardar
     if(data.pago){
       document.getElementById('pagado').checked=data.pago.pagado||false;
       if(data.pago.fechaPago) document.getElementById('fechaPago').value=data.pago.fechaPago;
@@ -3987,6 +3977,7 @@ async function mostrarGraficoVolatilidad(providerId){
 let recibosActuales=[];
 let totalPagado=0;
 let pagoComprobanteArchivo=null; // data URL del comprobante-archivo del pago en curso
+let pagoActual=null; // {pagado,montoRecibido,fechaPago} de la cotización — lo escribe el sistema de Recibos de Pago (fuente única)
 
 // Lee el archivo de comprobante del modal Registrar Pago y lo guarda como data URL
 function cargarComprobantePago(e){
@@ -4221,8 +4212,9 @@ async function guardarPago(){
     const rec=recibosActuales[0];
     const pagadoTotal=(rec&&rec.historiaPagos)?rec.historiaPagos.reduce((s,p)=>s+(p.monto||0),0):0;
     const completo=!!(rec&&rec.pago&&rec.pago.estado==='completo');
+    pagoActual={pagado:completo, montoRecibido:pagadoTotal, fechaPago:new Date().toISOString().slice(0,10)};
     try{
-      await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio), {method:'PUT', body:JSON.stringify({pago:{pagado:completo, montoRecibido:pagadoTotal, fechaPago:new Date().toISOString().slice(0,10)}})});
+      await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio), {method:'PUT', body:JSON.stringify({pago:pagoActual})});
       const chk=document.getElementById('pagado'); if(chk) chk.checked=completo;
       const mr=document.getElementById('montoRecibido'); if(mr) mr.value=pagadoTotal;
     }catch(e){ /* no bloquear el registro del pago por esto */ }
