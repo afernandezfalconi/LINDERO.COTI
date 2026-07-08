@@ -397,7 +397,9 @@ async function getLandingByToken(env, token) {
 // ── VALIDACIÓN DE ENTRADA ─────────────────────────────────────────────
 function validateCotizacion(rec) {
   if (!rec || typeof rec !== 'object') return false;
-  if (typeof rec.resumenCliente !== 'string' || rec.resumenCliente.length > 200) return false;
+  // resumenCliente solo se valida si viene en el body -> permite actualizaciones
+  // parciales como {estatus:'cancelada'} (cancelar / cambiar estatus) sin exigir el objeto completo
+  if (rec.resumenCliente !== undefined && (typeof rec.resumenCliente !== 'string' || rec.resumenCliente.length > 200)) return false;
   if (rec.campos && typeof rec.campos !== 'object') return false;
   return true;
 }
