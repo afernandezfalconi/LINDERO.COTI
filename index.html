@@ -831,51 +831,9 @@ function irAlHome(){
     </div>
   </div>
 
-  <!-- SECCIÓN 8: PAGO Y COMPROBANTE — OCULTA: los pagos se unificaron en "Recibos de Pago".
-       Se mantiene en el DOM (oculto) como respaldo de datos: el registro de pago rellena
-       estos campos para que Finanzas, el resumen y la exportación sigan funcionando. -->
-  <div id="sec8-wrap" style="display:none">
-  <div class="sec-h"><div class="snum">8</div><div class="stit">💳 Pago y comprobante</div></div>
-  <div class="sec-b">
-    <div class="f">
-      <label><input type="checkbox" id="pagado" onchange="togglePagoUI()"> Marcado como pagado</label>
-    </div>
-    <div id="pago-ui" style="display:none;padding-top:1rem;border-top:1px solid var(--border)">
-      <div class="f">
-        <label>Fecha de pago</label>
-        <input type="date" id="fechaPago">
-      </div>
-      <div class="f">
-        <label>Monto recibido (opcional, si difiere del total)</label>
-        <input type="number" id="montoRecibido" placeholder="Dejar vacío para usar el total" step="0.01" min="0" oninput="actualizarEstadoPagoResumen()">
-      </div>
-      <div class="f">
-        <label>Notas (p. ej., método de pago)</label>
-        <textarea id="notasPago" placeholder="Transferencia, efectivo, cheque, etc." style="resize:vertical;min-height:60px;font-family:var(--fm)"></textarea>
-      </div>
-      <div class="f">
-        <label style="display:block;margin-bottom:.5rem">📎 Comprobante de pago (PDF/Imagen)</label>
-        <div id="drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:2rem;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg-soft)"
-             ondrop="handleDrop(event)" ondragover="event.preventDefault();event.target.style.borderColor='var(--muted)';event.target.style.background='var(--bg)'"
-             ondragleave="event.target.style.borderColor='var(--border)';event.target.style.background='var(--bg-soft)'">
-          <div style="font-size:14px;color:var(--text);margin-bottom:.5rem">Arrastra aquí o haz clic</div>
-          <div style="font-size:12px;color:var(--muted)">PDF o imagen (máx 5 MB)</div>
-          <input type="file" id="file-comprobante" accept=".pdf,image/*" style="display:none" onchange="handleFileSelect(event)">
-        </div>
-        <div id="upload-status" style="margin-top:.75rem;font-size:12px;color:var(--muted)">—</div>
-        <div id="comprobante-preview" style="margin-top:.75rem;display:none">
-          <div style="font-size:12px;color:var(--success);margin-bottom:.5rem">✅ Comprobante subido</div>
-          <img id="comprobante-thumb" style="display:none;max-width:100%;max-height:200px;border:1px solid var(--border);border-radius:6px;margin-bottom:.5rem;cursor:pointer" onclick="verComprobante()" title="Clic para ver en grande">
-          <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-            <button class="tb" onclick="verComprobante()" style="flex:1;min-width:110px;justify-content:center"><i class="ti ti-eye" aria-hidden="true"></i> Ver</button>
-            <button class="tb" onclick="descargarComprobante()" style="flex:1;min-width:110px;justify-content:center"><i class="ti ti-download" aria-hidden="true"></i> Descargar</button>
-            <button class="tb del" onclick="limpiarComprobante()" style="flex:1;min-width:110px;justify-content:center"><i class="ti ti-trash" aria-hidden="true"></i> Eliminar</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-  </div><!-- /sec8-wrap -->
+  <!-- (Sección 8 "Pago y comprobante" ELIMINADA — los pagos se registran solo en
+       "Recibos de Pago" (panel derecho): monto, método, comprobante-archivo, historial
+       y recibo compartible. data.pago lo escribe ese sistema, no un formulario aparte.) -->
 
   <!-- SECCIÓN 9: EGRESOS (COSTOS DE MATERIALES) -->
   <div class="sec-h"><div class="snum">9</div><div class="stit">📉 Egresos (Costo de Materiales)</div></div>
@@ -1881,17 +1839,11 @@ function nuevaCotizacion(){
   buildLados([]);
   updPortSel();
   document.getElementById('cli-f').value='';
-  // Reset pago y comprobante
+  // Reset de pago (fuente única: "Recibos de Pago")
   pagoActual=null;
-  document.getElementById('pagado').checked=false;
-  document.getElementById('fechaPago').value='';
-  document.getElementById('montoRecibido').value='';
-  document.getElementById('notasPago').value='';
-  comprobanteCarga=null;
-  document.getElementById('comprobante-preview').style.display='none';
-  document.getElementById('upload-status').textContent='—';
-  document.getElementById('pago-ui').style.display='none';
-  recibosActuales=[]; actualizarEstadoPagoResumen(); // resetea el resumen de pago
+  recibosActuales=[];
+  pagoComprobanteArchivo=null;
+  resetResumenPago();
   // Reset egresos
   egresos=[];
   renderizarEgresos();
@@ -2163,22 +2115,9 @@ async function cargarCotizacion(key){
       document.getElementById('hint').style.display='none';
     }
 
-    // Cargar información de pago si existe
-    pagoActual = data.pago || null; // fuente única para re-guardar
-    if(data.pago){
-      document.getElementById('pagado').checked=data.pago.pagado||false;
-      if(data.pago.fechaPago) document.getElementById('fechaPago').value=data.pago.fechaPago;
-      if(data.pago.montoRecibido) document.getElementById('montoRecibido').value=data.pago.montoRecibido;
-      if(data.pago.notasPago) document.getElementById('notasPago').value=data.pago.notasPago;
-      if(data.pago.comprobante){
-        comprobanteCarga={nombre:'(comprobante guardado)',tipo:'',base64:data.pago.comprobante};
-        document.getElementById('comprobante-preview').style.display='block';
-        document.getElementById('upload-status').textContent='✅ Comprobante guardado';
-        document.getElementById('upload-status').style.color='var(--success)';
-        mostrarThumbComprobante();
-      }
-      togglePagoUI();
-    }
+    // Info de pago: fuente única (se re-guarda tal cual con recopilarEstado). Los pagos
+    // y comprobantes se ven/gestionan en "Recibos de Pago" (cargarRecibos).
+    pagoActual = data.pago || null;
 
     // Cargar egresos si existen
     if(data.egresos && data.egresos.length>0){
@@ -2790,141 +2729,12 @@ async function ejecutarMigracionGrampas(){
   }
 }
 
-// ── PAGO Y COMPROBANTE ────────────────────────────────────────────
-let comprobanteCarga=null; // { nombre, tipo, base64 }
-
-function togglePagoUI(){
-  const checked=document.getElementById('pagado').checked;
-  document.getElementById('pago-ui').style.display=checked?'block':'none';
-  actualizarEstadoPagoResumen();
-}
-
-// Refleja el pago de la sección 8 ("Marcado como pagado" + monto recibido) en el
-// resumen de Recibos de Pago, SOLO cuando no hay pagos registrados con "Registrar Pago"
-// (esos tienen prioridad y los maneja cargarRecibos()).
-function actualizarEstadoPagoResumen(){
-  if(recibosActuales && recibosActuales.length>0) return; // los recibos registrados mandan
-  const badge=document.getElementById('estado-pago-badge');
-  const montoEl=document.getElementById('monto-pagado');
-  if(!badge||!montoEl) return;
-  const pagoChk=document.getElementById('pagado');
-  if(pagoChk && pagoChk.checked){
-    let monto=parseFloat(document.getElementById('montoRecibido').value);
-    if(isNaN(monto)||monto<=0){
-      const totalTxt=(document.getElementById('r-to').textContent||'').replace(/[$,]/g,'').trim();
-      monto=parseFloat(totalTxt)||0;
-    }
-    badge.textContent='✅ Pagado';
-    badge.style.color='var(--green)';
-    montoEl.textContent='$'+monto.toFixed(2);
-  }else{
-    badge.textContent='⚪ Pendiente';
-    badge.style.color='var(--muted)';
-    montoEl.textContent='$0.00';
-  }
-}
-
-function handleDrop(e){
-  e.preventDefault();
-  e.stopPropagation();
-  const files=e.dataTransfer.files;
-  if(files.length>0) procesarArchivoComprobante(files[0]);
-}
-
-document.getElementById('drop-zone')?.addEventListener('click',()=>{
-  document.getElementById('file-comprobante').click();
-});
-
-function handleFileSelect(e){
-  const files=e.target.files;
-  if(files.length>0) procesarArchivoComprobante(files[0]);
-}
-
-async function procesarArchivoComprobante(file){
-  const status=document.getElementById('upload-status');
-  if(file.size>5*1024*1024){
-    status.textContent='❌ Archivo muy grande (máx 5 MB)';
-    status.style.color='var(--red)';
-    return;
-  }
-  if(!['application/pdf','image/jpeg','image/png','image/webp'].includes(file.type)){
-    status.textContent='❌ Solo PDF e imágenes permitidas';
-    status.style.color='var(--red)';
-    return;
-  }
-  status.textContent='Cargando…';
-  const reader=new FileReader();
-  reader.onload=e=>{
-    comprobanteCarga={
-      nombre:file.name,
-      tipo:file.type,
-      base64:e.target.result
-    };
-    status.textContent='✅ Comprobante cargado: '+file.name;
-    status.style.color='var(--success)';
-    document.getElementById('comprobante-preview').style.display='block';
-    mostrarThumbComprobante();
-  };
-  reader.onerror=()=>{
-    status.textContent='❌ Error al leer el archivo';
-    status.style.color='var(--red)';
-  };
-  reader.readAsDataURL(file);
-}
-
-// Convierte el data URL del comprobante en un Blob (para ver/descargar)
-function comprobanteBlob(){
-  if(!comprobanteCarga || !comprobanteCarga.base64) return null;
-  const du=comprobanteCarga.base64;
-  const partes=du.split(',');
-  const mime=(partes[0].match(/data:([^;]+)/)||[])[1]||'application/octet-stream';
-  try{
-    const bin=atob(partes[1]);
-    const arr=new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
-    return {blob:new Blob([arr],{type:mime}), mime};
-  }catch(e){ return null; }
-}
-
-function verComprobante(){
-  if(!comprobanteCarga || !comprobanteCarga.base64){ toast('No hay comprobante para ver', false); return; }
-  const b=comprobanteBlob();
-  if(b){
-    const url=URL.createObjectURL(b.blob);
-    window.open(url,'_blank');
-    setTimeout(()=>URL.revokeObjectURL(url), 60000);
-  }else{
-    window.open(comprobanteCarga.base64,'_blank'); // fallback
-  }
-}
-
-function descargarComprobante(){
-  if(!comprobanteCarga || !comprobanteCarga.base64){ toast('No hay comprobante para descargar', false); return; }
-  const b=comprobanteBlob();
-  const ext=(b?{'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[b.mime]:'')||'';
-  const baseNombre=(comprobanteCarga.nombre && comprobanteCarga.nombre!=='(comprobante guardado)') ? comprobanteCarga.nombre : ('comprobante-'+(cotizacionActualKey||'pago')+(ext?('.'+ext):''));
-  const a=document.createElement('a');
-  a.href = b ? URL.createObjectURL(b.blob) : comprobanteCarga.base64;
-  a.download=baseNombre;
-  document.body.appendChild(a); a.click(); a.remove();
-  if(b) setTimeout(()=>URL.revokeObjectURL(a.href), 60000);
-}
-
-// Muestra la miniatura si el comprobante es imagen
-function mostrarThumbComprobante(){
-  const img=document.getElementById('comprobante-thumb');
-  if(!img) return;
-  const du=comprobanteCarga && comprobanteCarga.base64;
-  if(du && /^data:image\//.test(du)){ img.src=du; img.style.display='block'; }
-  else{ img.removeAttribute('src'); img.style.display='none'; }
-}
-
-function limpiarComprobante(){
-  comprobanteCarga=null;
-  document.getElementById('comprobante-preview').style.display='none';
-  const thumb=document.getElementById('comprobante-thumb'); if(thumb){ thumb.removeAttribute('src'); thumb.style.display='none'; }
-  document.getElementById('upload-status').textContent='—';
-  document.getElementById('file-comprobante').value='';
+// ── PAGO: resumen (la fuente única es "Recibos de Pago"; la sección 8 fue eliminada) ──
+// Deja el resumen de pago en "Pendiente / $0" (cuando no hay recibos registrados).
+function resetResumenPago(){
+  const badge=document.getElementById('estado-pago-badge'); if(badge){ badge.textContent='⚪ Pendiente'; badge.style.color='var(--muted)'; }
+  const montoEl=document.getElementById('monto-pagado'); if(montoEl) montoEl.textContent='$0.00';
+  const hist=document.getElementById('historial-pagos'); if(hist) hist.style.display='none';
 }
 
 // ── MONTO NEGOCIADO: CALCULAR MARGEN DESDE TOTAL ──────────────────
@@ -4215,8 +4025,6 @@ async function guardarPago(){
     pagoActual={pagado:completo, montoRecibido:pagadoTotal, fechaPago:new Date().toISOString().slice(0,10)};
     try{
       await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio), {method:'PUT', body:JSON.stringify({pago:pagoActual})});
-      const chk=document.getElementById('pagado'); if(chk) chk.checked=completo;
-      const mr=document.getElementById('montoRecibido'); if(mr) mr.value=pagadoTotal;
     }catch(e){ /* no bloquear el registro del pago por esto */ }
 
     if(completo){
@@ -4287,7 +4095,7 @@ async function cargarRecibos(){
     }else{
       totalPagado=0;
       document.getElementById('historial-pagos').style.display='none';
-      actualizarEstadoPagoResumen(); // refleja la sección 8 si está marcada como pagada
+      resetResumenPago(); // sin recibos registrados: resumen en Pendiente/$0
     }
   }catch(e){
     console.error('Error cargando recibos:', e);
