@@ -839,7 +839,8 @@ function irAlHome(){
   <div class="sec">
   <div class="sec-h"><div class="snum">8</div><div class="stit">📉 Egresos (Costo de Materiales)</div></div>
   <div class="sec-b">
-    <div class="ni" style="margin-bottom:1rem">Registra aquí el costo real de los materiales utilizados para calcular la utilidad neta. Los egresos se guardan con la cotización.</div>
+    <div class="ni" style="margin-bottom:.75rem">Aquí va el costo <strong>real</strong> gastado (para tu utilidad neta). Cárgalo desde el estimado de arriba con un clic y <strong>ajusta solo lo que gastaste distinto</strong>. Se guarda con la cotización.</div>
+    <button class="tb ok" onclick="cargarEgresosEstimados()" style="width:100%;justify-content:center;margin-bottom:1rem"><i class="ti ti-arrow-down" aria-hidden="true"></i> Cargar costos estimados de la cotización</button>
 
     <!-- TABLA DE EGRESOS -->
     <div style="overflow-x:auto;margin-bottom:1rem">
@@ -2774,6 +2775,25 @@ function limpiarMontoNegociado(){
 
 // ── EGRESOS: COSTOS DE MATERIALES ────────────────────────────────────
 let egresos=[]; // array de {desc, cant, unitario}
+
+// Pre-llena Egresos con el desglose de costo ya calculado arriba (estimado).
+// El usuario luego ajusta solo las líneas donde el gasto real difirió.
+function cargarEgresosEstimados(){
+  const parse=id=>{ const t=(document.getElementById(id)?.textContent||'').replace(/[$,]/g,'').trim(); const v=parseFloat(t); return isNaN(v)?0:v; };
+  const lineas=[
+    {desc:'Postes de línea', id:'r-cl'},
+    {desc:'Postes esquineros', id:'r-ce'},
+    {desc:'Alambre de púa', id:'r-ca'},
+    {desc:'Mano de obra', id:'r-cm'},
+    {desc:(document.getElementById('r-co-lbl')?.textContent||'Fundición de postes'), id:'r-co'}
+  ];
+  const nuevos=lineas.map(l=>({desc:l.desc, cant:1, unitario:parse(l.id)})).filter(e=>e.unitario>0);
+  if(nuevos.length===0){ toast('Aún no hay costos calculados — completa la cotización arriba', false); return; }
+  if(egresos.length>0 && !confirm('¿Reemplazar los egresos actuales con los costos estimados de la cotización?')) return;
+  egresos=nuevos;
+  renderizarEgresos();
+  toast('✓ Egresos cargados desde el estimado — ajusta lo que gastaste distinto', true);
+}
 
 // Al elegir un material del desplegable: mostrar campo libre si es "Otro",
 // o pre-llenar el costo unitario con el precio real ya capturado arriba.
