@@ -124,8 +124,9 @@ async function hashPassword(password, saltHex) {
 
 // ── USUARIOS Y AUTENTICACIÓN ──────────────────────────────────────────
 async function getUserByToken(env, token) {
-  const email = await env.COTIZACIONES.get(TOKENS_PREFIX + token);
-  if (!email) return null;
+  const raw = await env.COTIZACIONES.get(TOKENS_PREFIX + token);
+  if (!raw) return null;
+  const email = String(raw).trim().toLowerCase(); // defensivo: tokens viejos pueden traer mayúsculas
 
   const userData = await env.COTIZACIONES.get(USERS_PREFIX + email);
   if (!userData) return null;
@@ -488,15 +489,17 @@ export default {
           return json({ error: 'Demasiados intentos de autenticación' }, 429, origin);
         }
         const body = await request.json();
-        const email = body.email || '';
+        // El email se normaliza a minúsculas SIEMPRE (los emails no distinguen mayúsculas).
+        // Debe coincidir con cómo se guarda al crear el usuario y en set-password.
+        const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
         const password = body.password || '';
 
-        if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
+        if (!email || !password || typeof password !== 'string') {
           return json({ error: 'Email y contraseña requeridos' }, 400, origin);
         }
 
         // Obtener usuario
-        const userData = await env.COTIZACIONES.get(USERS_PREFIX + email.toLowerCase());
+        const userData = await env.COTIZACIONES.get(USERS_PREFIX + email);
         if (!userData) {
           return json({ error: 'Usuario o contraseña inválidos' }, 401, origin);
         }
@@ -857,7 +860,9 @@ export default {
 
       if (request.method === 'POST' && path === '/api/users') {
         const body = await request.json();
-        const newEmail = body.email;
+        // CAUSA RAÍZ de "Usuario no encontrado": antes se guardaba el email tal cual
+        // (con mayúsculas) mientras login/set-password lo buscaban en minúsculas.
+        const newEmail = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
         const role = body.role || 'VIEWER';
 
         if (!newEmail || !newEmail.includes('@') || !ROLES[role]) {
