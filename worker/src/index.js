@@ -301,6 +301,16 @@ function generateReceiptNumber() {
 async function createReceipt(env, receiptData) {
   const numero = generateReceiptNumber();
 
+  // Estado del pago desde el PRIMER pago (antes quedaba fijo en 'pendiente',
+  // por lo que un pago completo de una sola vez nunca se marcaba 'completo'
+  // y Finanzas no lo contaba). Se calcula igual que en addPayment.
+  const montoInicial = receiptData.monto || 0;
+  const totalRequerido = (receiptData.totales && receiptData.totales.total) || 0;
+  let estadoInicial = 'pendiente';
+  if (montoInicial > 0) {
+    estadoInicial = (totalRequerido > 0 && montoInicial >= totalRequerido) ? 'completo' : 'parcial';
+  }
+
   const receipt = {
     numero,
     folio: receiptData.folio,
@@ -311,13 +321,13 @@ async function createReceipt(env, receiptData) {
     totales: receiptData.totales || {},
     pago: {
       metodo: receiptData.metodo || 'efectivo',
-      monto: receiptData.monto || 0,
-      estado: 'pendiente'
+      monto: montoInicial,
+      estado: estadoInicial
     },
     historiaPagos: [
       {
         fecha: new Date().toISOString(),
-        monto: receiptData.monto || 0,
+        monto: montoInicial,
         metodo: receiptData.metodo || 'efectivo',
         comprobante: receiptData.comprobante || '',
         comprobanteArchivo: receiptData.comprobanteArchivo || '',
