@@ -1724,7 +1724,8 @@ function calc(){
   document.getElementById('r-se').textContent=sp+' m entre postes';
   document.getElementById('r-po').textContent=conPorton?pa+' m de vano':'Sin portón';
   document.getElementById('r-pl').textContent=pl+' pzas';
-  document.getElementById('r-pe2').textContent=pe+' pzas (concreto 15×15)';
+  const eWcm=fv('dim-e-w')||15; // ancho real del esquinero (cm) — antes estaba fijo en 15×15
+  document.getElementById('r-pe2').textContent=pe+' pzas (concreto '+eWcm+'×'+eWcm+')';
   document.getElementById('r-ma').textContent=mat==='c'?('Concreto '+(fv('dim-lc-w')||12)+'×'+(fv('dim-lc-w')||12)+'×'+(fv('dim-lc-h')||2)+'m'):('Madera Ø'+(fv('dim-lw-d')||10)+'cm×'+(fv('dim-lw-h')||2)+'m');
   document.getElementById('r-mo').textContent=mp==='buy'?'Prefabricados':'Fabricados en obra';
   document.getElementById('r-hebras-lbl').textContent='('+hebras+' hebra'+(hebras!==1?'s':'')+')';

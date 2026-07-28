@@ -561,13 +561,25 @@ export default {
         <tr><td>Portón</td><td>${rec.resumenDetalles?.porton || '—'}</td></tr>
       `;
 
+      // Landing PÚBLICA: no exponer datos internos que perjudiquen al negocio.
+      // - Mano de obra: se OMITE (el cliente no debe ver el costo de MO).
+      // - Alambre: solo los metros usados, sin el "(N m c/u)" del rollo; si no,
+      //   el cliente podría reclamar la merma del rollo completo.
+      // - Postes esquineros: usar las dimensiones reales del esquinero (dim-e-w),
+      //   no el "15×15" que estaba fijo. Se calcula al vuelo, así también corrige
+      //   las landings ya publicadas sin necesidad de re-guardar la cotización.
+      const eW = (rec.campos && rec.campos['dim-e-w']) || 15;
+      const esqRaw = rec.resumenDetalles?.postesEsq || '—';
+      const esqPzas = (String(esqRaw).match(/^\s*\d+\s*pzas?/i) || [''])[0].trim();
+      const postesEsq = esqPzas ? `${esqPzas} (concreto ${eW}×${eW})` : esqRaw;
+      const alambreUsado = String(rec.resumenDetalles?.alambre || '—').split('·')[0].trim();
+
       const materialesLote = `
         <tr><td>Postes línea</td><td>${rec.resumenDetalles?.postesLinea || '—'}</td></tr>
-        <tr><td>Postes esquineros</td><td>${rec.resumenDetalles?.postesEsq || '—'}</td></tr>
+        <tr><td>Postes esquineros</td><td>${postesEsq}</td></tr>
         <tr><td>Material</td><td>${rec.resumenDetalles?.material || '—'}</td></tr>
         <tr><td>Modo</td><td>${rec.resumenDetalles?.modo || '—'}</td></tr>
-        <tr><td>Alambre</td><td>${rec.resumenDetalles?.alambre || '—'}</td></tr>
-        <tr><td>Mano de obra</td><td>${rec.resumenDetalles?.mo || '—'}</td></tr>
+        <tr><td>Alambre</td><td>${alambreUsado}</td></tr>
       `;
 
       const html = `<!DOCTYPE html>
@@ -604,7 +616,7 @@ export default {
     </div>
     <h3>Detalle del Lote</h3>
     <table><tbody>${detallesLote}</tbody></table>
-    <h3>Materiales y Mano de Obra</h3>
+    <h3>Materiales</h3>
     <table><tbody>${materialesLote}</tbody></table>
     <div class="total-section">
       <div>Precio Total</div>
