@@ -592,6 +592,12 @@ export default {
       const postesEsq   = esqPzas   ? `${esqPzas} (concreto ${eW}×${eW}×${eH})` : (rec.resumenDetalles?.postesEsq || '—');
       const alambre     = metros && metros !== '—' ? `${metros} de alambre de púas · ${hebras} hebras` : '—';
 
+      // Croquis del terreno (imagen del trazado guardada en la cotización). Si la
+      // cotización se hizo con medidas manuales (sin plano), no hay snapshot y se omite.
+      const croquis = (rec.snapshot && /^data:image\//.test(rec.snapshot)) ? `
+    <h3>Croquis del Terreno</h3>
+    <div style="text-align:center;margin-bottom:2rem"><img src="${rec.snapshot}" alt="Croquis del terreno" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.08)"></div>` : '';
+
       const materialesLote = `
         <tr><td>Postes línea</td><td>${postesLinea}</td></tr>
         <tr><td>Postes esquineros</td><td>${postesEsq}</td></tr>
@@ -628,7 +634,7 @@ export default {
     <div class="header">
       <div class="logo">🚧 LINDERO</div>
       <div class="fecha">Folio: ${rec.resumenFolio}</div>
-    </div>
+    </div>${croquis}
     <div class="cliente">
       <strong>Cliente:</strong> ${rec.resumenCliente || '—'}
     </div>
