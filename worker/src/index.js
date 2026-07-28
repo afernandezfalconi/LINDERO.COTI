@@ -568,18 +568,36 @@ export default {
       // - Postes esquineros: usar las dimensiones reales del esquinero (dim-e-w),
       //   no el "15×15" que estaba fijo. Se calcula al vuelo, así también corrige
       //   las landings ya publicadas sin necesidad de re-guardar la cotización.
-      const eW = (rec.campos && rec.campos['dim-e-w']) || 15;
-      const esqRaw = rec.resumenDetalles?.postesEsq || '—';
-      const esqPzas = (String(esqRaw).match(/^\s*\d+\s*pzas?/i) || [''])[0].trim();
-      const postesEsq = esqPzas ? `${esqPzas} (concreto ${eW}×${eW})` : esqRaw;
-      const alambreUsado = String(rec.resumenDetalles?.alambre || '—').split('·')[0].trim();
+      // Dimensiones reales desde los campos guardados (se calcula al render, así
+      // corrige también las landings ya publicadas sin re-guardar la cotización).
+      const mat = rec.mat || 'c';
+      const nd = v => String(parseFloat(v)); // normaliza dims: "2.0" -> "2", "2.5" -> "2.5"
+      const lcW = nd((rec.campos && rec.campos['dim-lc-w']) || 12);
+      const lcH = nd((rec.campos && rec.campos['dim-lc-h']) || 2);
+      const lwD = nd((rec.campos && rec.campos['dim-lw-d']) || 10);
+      const lwH = nd((rec.campos && rec.campos['dim-lw-h']) || 2);
+      const eW  = nd((rec.campos && rec.campos['dim-e-w']) || 15);
+      const eH  = nd((rec.campos && rec.campos['dim-e-h']) || 2);
+      const hebras = (rec.selects && rec.selects['hebras']) || '3';
+
+      const materialTipo = mat === 'w' ? 'Madera tratada' : 'Concreto';
+      const dimsLinea = mat === 'w' ? `Ø${lwD}×${lwH}` : `${lcW}×${lcW}×${lcH}`;
+
+      // Se conserva el conteo de piezas ya calculado ("19 pzas") y se le añaden las dims.
+      const lineaPzas = (String(rec.resumenDetalles?.postesLinea || '').match(/^\s*\d+\s*pzas?/i) || [''])[0].trim();
+      const esqPzas   = (String(rec.resumenDetalles?.postesEsq   || '').match(/^\s*\d+\s*pzas?/i) || [''])[0].trim();
+      const metros    = String(rec.resumenDetalles?.alambre || '—').split('·')[0].trim(); // "165 m"
+
+      const postesLinea = lineaPzas ? `${lineaPzas} (${materialTipo.toLowerCase()} ${dimsLinea})` : (rec.resumenDetalles?.postesLinea || '—');
+      const postesEsq   = esqPzas   ? `${esqPzas} (concreto ${eW}×${eW}×${eH})` : (rec.resumenDetalles?.postesEsq || '—');
+      const alambre     = metros && metros !== '—' ? `${metros} de alambre de púas · ${hebras} hebras` : '—';
 
       const materialesLote = `
-        <tr><td>Postes línea</td><td>${rec.resumenDetalles?.postesLinea || '—'}</td></tr>
+        <tr><td>Postes línea</td><td>${postesLinea}</td></tr>
         <tr><td>Postes esquineros</td><td>${postesEsq}</td></tr>
-        <tr><td>Material</td><td>${rec.resumenDetalles?.material || '—'}</td></tr>
+        <tr><td>Material</td><td>${materialTipo}</td></tr>
         <tr><td>Modo</td><td>${rec.resumenDetalles?.modo || '—'}</td></tr>
-        <tr><td>Alambre</td><td>${alambreUsado}</td></tr>
+        <tr><td>Alambre</td><td>${alambre}</td></tr>
       `;
 
       const html = `<!DOCTYPE html>
