@@ -634,12 +634,12 @@ export default {
     <div class="header">
       <div class="logo">🚧 LINDERO</div>
       <div class="fecha">Folio: ${rec.resumenFolio}</div>
-    </div>${croquis}
+    </div>
     <div class="cliente">
       <strong>Cliente:</strong> ${rec.resumenCliente || '—'}
     </div>
     <h3>Detalle del Lote</h3>
-    <table><tbody>${detallesLote}</tbody></table>
+    <table><tbody>${detallesLote}</tbody></table>${croquis}
     <h3>Materiales</h3>
     <table><tbody>${materialesLote}</tbody></table>
     <div class="total-section">
