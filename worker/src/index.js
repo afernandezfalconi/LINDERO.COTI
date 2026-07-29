@@ -339,6 +339,7 @@ async function createReceipt(env, receiptData) {
   };
 
   await env.COTIZACIONES.put(RECEIPTS_PREFIX + numero, JSON.stringify(receipt));
+  await refreshFlags(env, receipt.folio);
   return receipt;
 }
 
@@ -392,6 +393,7 @@ async function addPayment(env, receiptNumber, payment) {
   }
 
   await env.COTIZACIONES.put(RECEIPTS_PREFIX + receiptNumber, JSON.stringify(receipt));
+  await refreshFlags(env, receipt.folio);
   return receipt;
 }
 
@@ -432,7 +434,47 @@ function validateCotizacion(rec) {
   return true;
 }
 
-function metaOf(rec) {
+// ── BANDERAS DENORMALIZADAS (Centro de Cotizaciones) ──────────────────
+// Se guardan en la METADATA de cada clave cot: para que el panel las lea con un
+// solo KV.list() (sin get por clave, sin imágenes). Ver centro-cotizaciones-blueprint.md.
+function parseMoney(s) {
+  const v = parseFloat(String(s == null ? '' : s).replace(/[^0-9.-]/g, ''));
+  return isNaN(v) ? 0 : v;
+}
+
+// Calcula estado de pago/firma/recibo de una cotización.
+// receipts: array de recibos del folio, o null si no se cargaron (las banderas de
+// recibo quedan fuera del objeto para que el llamador preserve las previas).
+function computeFlags(rec, receipts) {
+  const totalNum = parseMoney(rec && rec.resumenTotal);
+  const pago = (rec && rec.pago) || null;
+  let montoPagado = 0;
+  if (pago && typeof pago.montoRecibido === 'number') montoPagado = pago.montoRecibido;
+  else if (Array.isArray(receipts)) montoPagado = receipts.reduce((s, r) => s + (r.historiaPagos || []).reduce((a, p) => a + (p.monto || 0), 0), 0);
+  else if (pago && pago.pagado) montoPagado = totalNum;
+  const estadoPago = montoPagado <= 0 ? 'pendiente' : (montoPagado + 0.01 >= totalNum ? 'pagada' : 'parcial');
+  const saldo = Math.max(0, Math.round((totalNum - montoPagado) * 100) / 100);
+  let fechaPago = (pago && pago.fechaPago) || '';
+  if (!fechaPago && Array.isArray(receipts)) {
+    const pagos = receipts.flatMap(r => r.historiaPagos || []);
+    if (pagos.length) fechaPago = String(pagos[pagos.length - 1].fecha || '').slice(0, 10);
+  }
+  const ac = (rec && rec.aceptacionCliente) || null;
+  const flags = {
+    estadoPago, montoPagado, saldo, fechaPago,
+    tieneCompCliente: !!(ac && ac.comprobante),
+    firmada: !!(ac && ac.firma),
+  };
+  if (Array.isArray(receipts)) {
+    flags.tieneCompVendedor = receipts.some(r => (r.historiaPagos || []).some(p => p.comprobanteArchivo));
+    flags.reciboNumero = receipts[0] ? receipts[0].numero : '';
+    flags.tieneRecibo = !!flags.reciboNumero;
+  }
+  return flags;
+}
+
+function metaOf(rec, prev = {}) {
+  const f = computeFlags(rec, null); // sin recibos: banderas derivadas de recibos se preservan de prev
   return {
     folio: rec.resumenFolio || '',
     cliente: rec.resumenCliente || '',
@@ -440,11 +482,35 @@ function metaOf(rec) {
     estatus: rec.estatus || 'pendiente',
     guardadoEn: rec.guardadoEn || '',
     actualizadoEn: rec.actualizadoEn || '',
+    estadoPago: f.estadoPago,
+    montoPagado: f.montoPagado,
+    saldo: f.saldo,
+    fechaPago: f.fechaPago,
+    tieneCompCliente: f.tieneCompCliente,
+    firmada: f.firmada,
+    tieneCompVendedor: prev.tieneCompVendedor || false,
+    tieneRecibo: prev.tieneRecibo || false,
+    reciboNumero: prev.reciboNumero || '',
   };
 }
 
 async function putRecord(env, folio, rec) {
-  await env.COTIZACIONES.put(KV_PREFIX + folio, JSON.stringify(rec), { metadata: metaOf(rec) });
+  // Preserva las banderas derivadas de recibos (putRecord no lista recibos);
+  // refreshFlags las recalcula en los eventos de pago/recibo.
+  let prev = {};
+  try { const cur = await env.COTIZACIONES.getWithMetadata(KV_PREFIX + folio); prev = (cur && cur.metadata) || {}; } catch (e) {}
+  await env.COTIZACIONES.put(KV_PREFIX + folio, JSON.stringify(rec), { metadata: metaOf(rec, prev) });
+}
+
+// Fuente única de verdad: recalcula TODAS las banderas (rec + recibos) y las persiste.
+// Llamar tras cada evento que cambie pago/firma/recibo.
+async function refreshFlags(env, folio) {
+  const raw = await env.COTIZACIONES.get(KV_PREFIX + folio);
+  if (!raw) return;
+  const rec = JSON.parse(raw);
+  const receipts = await getReceiptsByFolio(env, folio);
+  const meta = { ...metaOf(rec), ...computeFlags(rec, receipts) };
+  await env.COTIZACIONES.put(KV_PREFIX + folio, JSON.stringify(rec), { metadata: meta });
 }
 
 async function nextFolioNum(env) {
@@ -577,7 +643,8 @@ export default {
         ip
       };
       rec.actualizadoEn = new Date().toISOString();
-      await env.COTIZACIONES.put(KV_PREFIX + folio, JSON.stringify(rec));
+      await putRecord(env, folio, rec);   // persiste rec + metadata (antes hacía put sin metadata)
+      await refreshFlags(env, folio);     // actualiza banderas firmada/tieneCompCliente
       return json({ ok: true, aceptadoEn: rec.aceptacionCliente.aceptadoEn }, 200, origin);
     }
 
@@ -917,6 +984,86 @@ export default {
 
         await createAuditLog(env, user, 'LIST_COTIZACIONES', 'all', { count: out.length });
         return json({ items: out }, 200, origin);
+      }
+
+      // ── RESUMEN LIVIANO (Centro de Cotizaciones) ─────────────────────
+      // Lee solo la metadata (banderas) vía KV.list, SIN get por clave ni imágenes.
+      // Debe ir ANTES de GET /:id porque "resumen" matchearía como :id.
+      if (request.method === 'GET' && path === '/api/cotizaciones/resumen') {
+        if (!(await hasPermission(user, PERMISSIONS.VIEW_COTIZACIONES))) {
+          return json({ error: 'Sin permisos' }, 403, origin);
+        }
+        const qp = url.searchParams;
+        const fEstadoPago = qp.get('estadoPago') || '';
+        const fEstatus = qp.get('estatus') || '';
+        const q = (qp.get('q') || '').trim().toLowerCase();
+        const desde = qp.get('desde') || '';
+        const hasta = qp.get('hasta') || '';
+        const limit = Math.min(parseInt(qp.get('limit') || '100', 10) || 100, 200);
+        const cursor = qp.get('cursor') || undefined;
+
+        const res = await env.COTIZACIONES.list({ prefix: KV_PREFIX, cursor, limit });
+        let items = res.keys.map(k => ({ ...(k.metadata || {}), folio: k.name.slice(KV_PREFIX.length) }));
+        if (fEstadoPago) items = items.filter(it => (it.estadoPago || 'pendiente') === fEstadoPago);
+        if (fEstatus) items = items.filter(it => (it.estatus || 'pendiente') === fEstatus);
+        if (q) items = items.filter(it => ((it.folio || '') + ' ' + (it.cliente || '')).toLowerCase().includes(q));
+        if (desde) items = items.filter(it => (it.fechaPago || it.guardadoEn || '').slice(0, 10) >= desde);
+        if (hasta) items = items.filter(it => (it.fechaPago || it.guardadoEn || '').slice(0, 10) <= hasta);
+        return json({ items, cursor: res.list_complete ? null : res.cursor }, 200, origin);
+      }
+
+      // ── ACEPTACIÓN DEL CLIENTE (on-demand: firma + comprobante) ──────
+      const mAcep = path.match(/^\/api\/cotizaciones\/([^/]+)\/aceptacion$/);
+      if (request.method === 'GET' && mAcep) {
+        if (!(await hasPermission(user, PERMISSIONS.VIEW_COTIZACIONES))) return json({ error: 'Sin permisos' }, 403, origin);
+        const raw = await env.COTIZACIONES.get(KV_PREFIX + mAcep[1]);
+        if (!raw) return json({ error: 'No encontrada' }, 404, origin);
+        const ac = JSON.parse(raw).aceptacionCliente || null;
+        return json({ aceptacion: ac ? { firma: ac.firma || '', comprobante: ac.comprobante || '', nombre: ac.nombre || '', aceptadoEn: ac.aceptadoEn || '' } : null }, 200, origin);
+      }
+
+      // ── GENERAR RECIBO para una cotización pagada sin recibo ─────────
+      const mGenRec = path.match(/^\/api\/cotizaciones\/([^/]+)\/generar-recibo$/);
+      if (request.method === 'POST' && mGenRec) {
+        const folio = mGenRec[1];
+        const raw = await env.COTIZACIONES.get(KV_PREFIX + folio);
+        if (!raw) return json({ error: 'No encontrada' }, 404, origin);
+        const rec = JSON.parse(raw);
+        const canEditAll = await hasPermission(user, PERMISSIONS.EDIT_ALL);
+        const canEditOwn = await hasPermission(user, PERMISSIONS.EDIT_OWN);
+        if (!canEditAll && (!canEditOwn || rec.creador !== user.email)) return json({ error: 'Sin permisos' }, 403, origin);
+        const existentes = await getReceiptsByFolio(env, folio);
+        if (existentes.length) return json({ numero: existentes[0].numero, yaExistia: true }, 200, origin);
+        const totalNum = parseMoney(rec.resumenTotal);
+        const pagado = (rec.pago && rec.pago.montoRecibido) || (rec.pago && rec.pago.pagado ? totalNum : 0);
+        if (pagado <= 0) return json({ error: 'La cotización no tiene pago registrado' }, 400, origin);
+        const receipt = await createReceipt(env, {
+          folio,
+          cliente: { nombre: rec.resumenCliente || '' },
+          detalles: { descripcion: 'Instalación de cerca' },
+          totales: { subtotal: totalNum, total: totalNum },
+          metodo: (rec.pago && rec.pago.metodo) || 'efectivo',
+          monto: pagado,
+          comprobante: '',
+          comprobanteArchivo: (rec.pago && rec.pago.comprobante) || '',
+          descripcion: 'Recibo generado desde el Centro de Cotizaciones'
+        });
+        await createAuditLog(env, user, 'GENERAR_RECIBO', folio, { numero: receipt.numero });
+        return json({ numero: receipt.numero }, 200, origin);
+      }
+
+      // ── MIGRACIÓN: reindexar banderas en metadata (ADMIN, una sola vez) ─
+      if (request.method === 'POST' && path === '/api/admin/reindexar-flags') {
+        if (!(await hasPermission(user, PERMISSIONS.VIEW_AUDIT)) && user.email !== ADMIN_EMAIL) {
+          return json({ error: 'Solo admin' }, 403, origin);
+        }
+        let cur, procesadas = 0;
+        do {
+          const r = await env.COTIZACIONES.list({ prefix: KV_PREFIX, cursor: cur, limit: 100 });
+          for (const k of r.keys) { await refreshFlags(env, k.name.slice(KV_PREFIX.length)); procesadas++; }
+          cur = r.list_complete ? null : r.cursor;
+        } while (cur);
+        return json({ ok: true, procesadas }, 200, origin);
       }
 
       // ── OBTENER COTIZACIÓN ───────────────────────────────────────────
@@ -1284,6 +1431,7 @@ export default {
         const rtoken = await generateReceiptToken(env, numero);
         const url = new URL(request.url).origin + '/recibo/' + rtoken;
         await createAuditLog(env, user, 'SHARE_RECEIPT', numero);
+        if (receipt.folio) await refreshFlags(env, receipt.folio); // asegura tieneRecibo/reciboNumero
         return json({ token: rtoken, url }, 200, origin);
       }
 

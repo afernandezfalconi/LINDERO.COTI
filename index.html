@@ -373,6 +373,7 @@ function irAlHome(){
   <div class="hdr-right">
     <button class="tb" onclick="abrirConfigEmpresa()"><i class="ti ti-building" aria-hidden="true"></i>Datos de empresa</button>
     <button class="tb" onclick="abrirListaCotizaciones()"><i class="ti ti-folder" aria-hidden="true"></i>Mis cotizaciones</button>
+    <button class="tb" onclick="abrirCentro()"><i class="ti ti-layout-dashboard" aria-hidden="true"></i>Centro</button>
     <button class="tb" onclick="abrirFinanzas()"><i class="ti ti-cash" aria-hidden="true"></i>Finanzas</button>
     <button class="tb" id="menu-proveedores" style="display:none" onclick="abrirProveedores()"><i class="ti ti-building-factory-2" aria-hidden="true"></i>Proveedores</button>
     <button class="tb" id="menu-usuarios" style="display:none" onclick="abrirPanelAdmin()"><i class="ti ti-users" aria-hidden="true"></i>Usuarios</button>
@@ -462,6 +463,46 @@ function irAlHome(){
 </div>
 
 <!-- MODAL: FINANZAS -->
+<!-- ══ CENTRO DE COTIZACIONES (panel de pagos/recibos/firmas) ══ -->
+<div id="modal-centro" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center" onclick="if(event.target===this) cerrarCentro()">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:980px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column">
+    <div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem">
+      <div class="stit"><i class="ti ti-layout-dashboard"></i> Centro de Cotizaciones</div>
+      <button onclick="cerrarCentro()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1">✕</button>
+    </div>
+    <div style="padding:.8rem 1.25rem;border-bottom:1px solid var(--border);background:var(--bg-soft);display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
+      <input id="centro-q" placeholder="Buscar folio o cliente…" oninput="filtrarCentro()" style="flex:1;min-width:180px;padding:.5rem .7rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+      <div class="tg" id="centro-chips" style="display:flex;gap:5px;flex-wrap:wrap">
+        <button class="tbn on" data-ep="" onclick="setCentroEstado('',this)">Todas</button>
+        <button class="tbn" data-ep="pagada" onclick="setCentroEstado('pagada',this)">Pagadas</button>
+        <button class="tbn" data-ep="parcial" onclick="setCentroEstado('parcial',this)">Parciales</button>
+        <button class="tbn" data-ep="pendiente" onclick="setCentroEstado('pendiente',this)">Pendientes</button>
+      </div>
+      <input type="date" id="centro-desde" onchange="filtrarCentro()" title="Pago desde" style="padding:.45rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
+      <input type="date" id="centro-hasta" onchange="filtrarCentro()" title="Pago hasta" style="padding:.45rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
+      <span id="centro-count" style="font-size:12px;color:var(--muted);font-family:var(--fm)">—</span>
+    </div>
+    <div style="overflow:auto;flex:1">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="position:sticky;top:0;background:var(--bg3);z-index:1">
+          <th style="text-align:left;padding:.6rem;color:var(--muted);font-size:11px;font-family:var(--fm);text-transform:uppercase">Folio · Cliente</th>
+          <th style="text-align:left;padding:.6rem;color:var(--muted);font-size:11px;font-family:var(--fm);text-transform:uppercase">Total / Saldo</th>
+          <th style="text-align:left;padding:.6rem;color:var(--muted);font-size:11px;font-family:var(--fm);text-transform:uppercase">Estado</th>
+          <th style="text-align:left;padding:.6rem;color:var(--muted);font-size:11px;font-family:var(--fm);text-transform:uppercase">Fecha pago</th>
+          <th style="text-align:center;padding:.6rem;color:var(--muted);font-size:11px;font-family:var(--fm);text-transform:uppercase">Comprob.</th>
+          <th style="text-align:center;padding:.6rem;color:var(--muted);font-size:11px;font-family:var(--fm);text-transform:uppercase">Recibo</th>
+          <th style="text-align:center;padding:.6rem;color:var(--muted);font-size:11px;font-family:var(--fm);text-transform:uppercase">Firma</th>
+        </tr></thead>
+        <tbody id="centro-tbody"></tbody>
+      </table>
+      <div id="centro-empty" style="display:none;padding:2rem;text-align:center;color:var(--muted)">Sin resultados con estos filtros.</div>
+    </div>
+    <div style="padding:.6rem 1.25rem;border-top:1px solid var(--border);font-size:11px;color:var(--dim);font-family:var(--fm)">
+      👁️ comprobante(s) · 📄 recibo (ver/compartir o generar) · ✍️ firma de autorización — iconos en gris = no disponible
+    </div>
+  </div>
+</div>
+
 <div id="modal-finanzas-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center" onclick="if(event.target===this) cerrarFinanzas()">
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:780px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column">
     <div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem">
@@ -2623,6 +2664,124 @@ function copiarLinkLanding(){
   i.select();
   try{ navigator.clipboard.writeText(i.value); }catch(e){ try{ document.execCommand('copy'); }catch(_){} }
   toast('✓ Link copiado', true);
+}
+
+// ── CENTRO DE COTIZACIONES ────────────────────────────────────────
+let centroAll = [];  // filas de resumen (metadata liviana, sin imágenes)
+let centroFiltro = { estadoPago:'', q:'', desde:'', hasta:'' };
+
+async function abrirCentro(){
+  document.getElementById('modal-centro').style.display='flex';
+  const tb=document.getElementById('centro-tbody');
+  tb.innerHTML='<tr><td colspan="7" style="padding:1.5rem;text-align:center;color:var(--muted)">Cargando…</td></tr>';
+  if(!(await asegurarPassword())){ tb.innerHTML='<tr><td colspan="7" style="padding:1.5rem;text-align:center;color:var(--red)">Inicia sesión. <button class="tb" onclick="abrirCentro()">Reintentar</button></td></tr>'; return; }
+  try{
+    centroAll=[]; let cursor=null, guard=0;
+    do{
+      const qs=cursor?('?limit=200&cursor='+encodeURIComponent(cursor)):'?limit=200';
+      const r=await apiFetch('/api/cotizaciones/resumen'+qs);
+      centroAll.push(...(r.items||[])); cursor=r.cursor; guard++;
+    }while(cursor && guard<50);
+    centroAll.sort((a,b)=>String(b.guardadoEn||'').localeCompare(String(a.guardadoEn||'')));
+    centroFiltro={estadoPago:'',q:'',desde:'',hasta:''};
+    document.getElementById('centro-q').value='';
+    document.getElementById('centro-desde').value='';
+    document.getElementById('centro-hasta').value='';
+    [...document.querySelectorAll('#centro-chips .tbn')].forEach(b=>b.classList.toggle('on', b.dataset.ep===''));
+    renderCentro();
+  }catch(e){
+    tb.innerHTML='<tr><td colspan="7" style="padding:1.5rem;text-align:center;color:var(--red)">Error: '+((e&&e.message)||e)+'</td></tr>';
+  }
+}
+function cerrarCentro(){ document.getElementById('modal-centro').style.display='none'; }
+function setCentroEstado(ep,btn){ centroFiltro.estadoPago=ep; [...document.querySelectorAll('#centro-chips .tbn')].forEach(b=>b.classList.toggle('on', b===btn)); renderCentro(); }
+function filtrarCentro(){
+  centroFiltro.q=(document.getElementById('centro-q').value||'').trim().toLowerCase();
+  centroFiltro.desde=document.getElementById('centro-desde').value||'';
+  centroFiltro.hasta=document.getElementById('centro-hasta').value||'';
+  renderCentro();
+}
+function centroBadge(ep){
+  if(ep==='pagada') return '<span style="font-size:11px;font-family:var(--fm);color:#0d1f0d;background:var(--accent);padding:2px 9px;border-radius:10px;font-weight:600">Pagada</span>';
+  if(ep==='parcial') return '<span style="font-size:11px;font-family:var(--fm);color:#fff;background:#ba7517;padding:2px 9px;border-radius:10px;font-weight:600">Parcial</span>';
+  return '<span style="font-size:11px;font-family:var(--fm);color:var(--muted);background:var(--bg3);border:1px solid var(--border);padding:2px 9px;border-radius:10px">Pendiente</span>';
+}
+function centroIcoOff(ico){ return '<span title="No disponible" style="color:var(--dim);opacity:.35"><i class="ti '+ico+'"></i></span>'; }
+function renderCentro(){
+  const f=centroFiltro;
+  const rows=centroAll.filter(it=>{
+    if(f.estadoPago && (it.estadoPago||'pendiente')!==f.estadoPago) return false;
+    if(f.q && !((it.folio||'')+' '+(it.cliente||'')).toLowerCase().includes(f.q)) return false;
+    const fp=(it.fechaPago||it.guardadoEn||'').slice(0,10);
+    if(f.desde && fp<f.desde) return false;
+    if(f.hasta && fp>f.hasta) return false;
+    return true;
+  });
+  document.getElementById('centro-count').textContent=rows.length+' de '+centroAll.length;
+  const tb=document.getElementById('centro-tbody');
+  if(rows.length===0){ tb.innerHTML=''; document.getElementById('centro-empty').style.display='block'; return; }
+  document.getElementById('centro-empty').style.display='none';
+  const cap=Math.min(rows.length,400);
+  let html='';
+  for(let i=0;i<cap;i++){
+    const it=rows[i], folio=it.folio;
+    const compAct=it.tieneCompVendedor||it.tieneCompCliente;
+    const compBtn=compAct?'<button class="tb" title="Ver comprobante(s)" onclick="centroComprobante(\''+folio+'\','+(!!it.tieneCompVendedor)+','+(!!it.tieneCompCliente)+')" style="padding:5px 8px"><i class="ti ti-file-invoice"></i></button>':centroIcoOff('ti-file-invoice');
+    const recBtn=it.tieneRecibo?'<button class="tb" title="Ver/compartir recibo" onclick="centroRecibo(\''+folio+'\')" style="padding:5px 8px"><i class="ti ti-receipt"></i></button>':((it.estadoPago==='pagada'||it.estadoPago==='parcial')?'<button class="tb ok" title="Generar recibo" onclick="centroGenerarRecibo(\''+folio+'\')" style="padding:4px 9px;font-size:11px">Generar</button>':centroIcoOff('ti-receipt'));
+    const firmaBtn=it.firmada?'<button class="tb" title="Ver firma del cliente" onclick="centroFirma(\''+folio+'\')" style="padding:5px 8px"><i class="ti ti-signature"></i></button>':centroIcoOff('ti-signature');
+    html+='<tr style="border-bottom:1px solid var(--border)">'
+      +'<td style="padding:.6rem"><div style="font-weight:600">'+escHtml(it.cliente||'—')+'</div><div style="font-size:11px;font-family:var(--fm);color:var(--accent)">'+escHtml(folio)+'</div></td>'
+      +'<td style="padding:.6rem;font-family:var(--fm)"><div>'+escHtml(it.total||'$—')+'</div>'+((it.saldo>0)?'<div style="font-size:11px;color:var(--red)">Saldo '+$m(it.saldo)+'</div>':'')+'</td>'
+      +'<td style="padding:.6rem">'+centroBadge(it.estadoPago||'pendiente')+'</td>'
+      +'<td style="padding:.6rem;font-family:var(--fm);font-size:12px;color:var(--muted)">'+escHtml(it.fechaPago||'—')+'</td>'
+      +'<td style="padding:.6rem;text-align:center">'+compBtn+'</td>'
+      +'<td style="padding:.6rem;text-align:center">'+recBtn+'</td>'
+      +'<td style="padding:.6rem;text-align:center">'+firmaBtn+'</td>'
+      +'</tr>';
+  }
+  if(rows.length>cap) html+='<tr><td colspan="7" style="padding:.6rem;text-align:center;color:var(--muted);font-size:12px">Mostrando '+cap+' de '+rows.length+' — refina los filtros para ver el resto</td></tr>';
+  tb.innerHTML=html;
+}
+// Acciones on-demand (cargan la imagen pesada solo al hacer clic)
+async function centroComprobante(folio, tieneVend, tieneCli){
+  try{
+    if(tieneVend && !tieneCli) return centroVerCompVendedor(folio);
+    if(tieneCli && !tieneVend) return centroVerCompCliente(folio);
+    const cliente=confirm('Comprobante a ver:\n\n  Aceptar = el que subió el CLIENTE\n  Cancelar = el que subió el VENDEDOR');
+    return cliente?centroVerCompCliente(folio):centroVerCompVendedor(folio);
+  }catch(e){ toast('Error: '+((e&&e.message)||e), false); }
+}
+async function centroVerCompVendedor(folio){
+  const r=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/receipts');
+  for(const rec of (r.items||[])){ for(const p of (rec.historiaPagos||[])){ if(p.comprobanteArchivo){ verArchivo(p.comprobanteArchivo); return; } } }
+  toast('No se encontró comprobante del vendedor', false);
+}
+async function centroVerCompCliente(folio){
+  const r=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/aceptacion');
+  if(r.aceptacion && r.aceptacion.comprobante) verArchivo(r.aceptacion.comprobante); else toast('El cliente no subió comprobante', false);
+}
+async function centroFirma(folio){
+  const r=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/aceptacion');
+  if(r.aceptacion && r.aceptacion.firma) verArchivo(r.aceptacion.firma); else toast('Sin firma', false);
+}
+async function centroRecibo(folio){
+  try{
+    const r=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/receipts');
+    const rec=(r.items||[])[0];
+    if(!rec){ toast('Sin recibo', false); return; }
+    const data=await apiFetch('/api/receipts/'+rec.numero+'/share', {method:'POST'});
+    mostrarLinkLanding(data.url, {titulo:'Recibo de pago para el cliente', desc:'Envía este comprobante a tu cliente. Puede verlo online y descargarlo como PDF. Vigencia 90 días.', pdfLocal:false});
+  }catch(e){ toast('No se pudo abrir el recibo: '+((e&&e.message)||e), false); }
+}
+async function centroGenerarRecibo(folio){
+  try{
+    const r=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/generar-recibo', {method:'POST'});
+    const it=centroAll.find(x=>x.folio===folio); if(it){ it.tieneRecibo=true; it.reciboNumero=r.numero; }
+    renderCentro();
+    toast('✓ Recibo generado', true);
+    const data=await apiFetch('/api/receipts/'+r.numero+'/share', {method:'POST'});
+    mostrarLinkLanding(data.url, {titulo:'Recibo de pago para el cliente', desc:'Envía este comprobante a tu cliente. Vigencia 90 días.', pdfLocal:false});
+  }catch(e){ toast('No se pudo generar el recibo: '+((e&&e.message)||e), false); }
 }
 
 function abrirDialogoExportar(){
