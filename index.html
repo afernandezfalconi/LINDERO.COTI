@@ -480,6 +480,7 @@ function irAlHome(){
       </div>
       <input type="date" id="centro-desde" onchange="filtrarCentro()" title="Pago desde" style="padding:.45rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
       <input type="date" id="centro-hasta" onchange="filtrarCentro()" title="Pago hasta" style="padding:.45rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
+      <button class="tbn" id="centro-cancel-tgl" onclick="toggleCanceladas(this)" title="Mostrar/ocultar cotizaciones canceladas"><i class="ti ti-ban" style="font-size:13px"></i> Ver canceladas</button>
       <span id="centro-count" style="font-size:12px;color:var(--muted);font-family:var(--fm)">—</span>
     </div>
     <div style="overflow:auto;flex:1">
@@ -2668,7 +2669,7 @@ function copiarLinkLanding(){
 
 // ── CENTRO DE COTIZACIONES ────────────────────────────────────────
 let centroAll = [];  // filas de resumen (metadata liviana, sin imágenes)
-let centroFiltro = { estadoPago:'', q:'', desde:'', hasta:'' };
+let centroFiltro = { estadoPago:'', q:'', desde:'', hasta:'', verCanceladas:false };
 
 async function abrirCentro(){
   document.getElementById('modal-centro').style.display='flex';
@@ -2683,10 +2684,11 @@ async function abrirCentro(){
       centroAll.push(...(r.items||[])); cursor=r.cursor; guard++;
     }while(cursor && guard<50);
     centroAll.sort((a,b)=>String(b.guardadoEn||'').localeCompare(String(a.guardadoEn||'')));
-    centroFiltro={estadoPago:'',q:'',desde:'',hasta:''};
+    centroFiltro={estadoPago:'',q:'',desde:'',hasta:'',verCanceladas:false};
     document.getElementById('centro-q').value='';
     document.getElementById('centro-desde').value='';
     document.getElementById('centro-hasta').value='';
+    const tgl=document.getElementById('centro-cancel-tgl'); if(tgl) tgl.classList.remove('on');
     [...document.querySelectorAll('#centro-chips .tbn')].forEach(b=>b.classList.toggle('on', b.dataset.ep===''));
     renderCentro();
   }catch(e){
@@ -2695,6 +2697,7 @@ async function abrirCentro(){
 }
 function cerrarCentro(){ document.getElementById('modal-centro').style.display='none'; }
 function setCentroEstado(ep,btn){ centroFiltro.estadoPago=ep; [...document.querySelectorAll('#centro-chips .tbn')].forEach(b=>b.classList.toggle('on', b===btn)); renderCentro(); }
+function toggleCanceladas(btn){ centroFiltro.verCanceladas=!centroFiltro.verCanceladas; btn.classList.toggle('on', centroFiltro.verCanceladas); renderCentro(); }
 function filtrarCentro(){
   centroFiltro.q=(document.getElementById('centro-q').value||'').trim().toLowerCase();
   centroFiltro.desde=document.getElementById('centro-desde').value||'';
@@ -2710,6 +2713,7 @@ function centroIcoOff(ico){ return '<span title="No disponible" style="color:var
 function renderCentro(){
   const f=centroFiltro;
   const rows=centroAll.filter(it=>{
+    if(!f.verCanceladas && it.estatus==='cancelada') return false;
     if(f.estadoPago && (it.estadoPago||'pendiente')!==f.estadoPago) return false;
     if(f.q && !((it.folio||'')+' '+(it.cliente||'')).toLowerCase().includes(f.q)) return false;
     const fp=(it.fechaPago||it.guardadoEn||'').slice(0,10);
@@ -2725,14 +2729,15 @@ function renderCentro(){
   let html='';
   for(let i=0;i<cap;i++){
     const it=rows[i], folio=it.folio;
+    const cancel=it.estatus==='cancelada';
     const compAct=it.tieneCompVendedor||it.tieneCompCliente;
     const compBtn=compAct?'<button class="tb" title="Ver comprobante(s)" onclick="centroComprobante(\''+folio+'\','+(!!it.tieneCompVendedor)+','+(!!it.tieneCompCliente)+')" style="padding:5px 8px"><i class="ti ti-file-invoice"></i></button>':centroIcoOff('ti-file-invoice');
     const recBtn=it.tieneRecibo?'<button class="tb" title="Ver/compartir recibo" onclick="centroRecibo(\''+folio+'\')" style="padding:5px 8px"><i class="ti ti-receipt"></i></button>':((it.estadoPago==='pagada'||it.estadoPago==='parcial')?'<button class="tb ok" title="Generar recibo" onclick="centroGenerarRecibo(\''+folio+'\')" style="padding:4px 9px;font-size:11px">Generar</button>':centroIcoOff('ti-receipt'));
     const firmaBtn=it.firmada?'<button class="tb" title="Ver firma del cliente" onclick="centroFirma(\''+folio+'\')" style="padding:5px 8px"><i class="ti ti-signature"></i></button>':centroIcoOff('ti-signature');
-    html+='<tr style="border-bottom:1px solid var(--border)">'
-      +'<td style="padding:.6rem"><div style="font-weight:600">'+escHtml(it.cliente||'—')+'</div><div style="font-size:11px;font-family:var(--fm);color:var(--accent)">'+escHtml(folio)+'</div></td>'
-      +'<td style="padding:.6rem;font-family:var(--fm)"><div>'+escHtml(it.total||'$—')+'</div>'+((it.saldo>0)?'<div style="font-size:11px;color:var(--red)">Saldo '+$m(it.saldo)+'</div>':'')+'</td>'
-      +'<td style="padding:.6rem">'+centroBadge(it.estadoPago||'pendiente')+'</td>'
+    html+='<tr style="border-bottom:1px solid var(--border)'+(cancel?';opacity:.5':'')+'">'
+      +'<td style="padding:.6rem"><div style="font-weight:600'+(cancel?';text-decoration:line-through':'')+'">'+escHtml(it.cliente||'—')+'</div><div style="font-size:11px;font-family:var(--fm);color:var(--accent)">'+escHtml(folio)+'</div></td>'
+      +'<td style="padding:.6rem;font-family:var(--fm)"><div>'+escHtml(it.total||'$—')+'</div>'+((it.saldo>0&&!cancel)?'<div style="font-size:11px;color:var(--red)">Saldo '+$m(it.saldo)+'</div>':'')+'</td>'
+      +'<td style="padding:.6rem">'+(cancel?'<span style="font-size:11px;font-family:var(--fm);color:var(--muted);background:var(--bg3);border:1px solid var(--border);padding:2px 9px;border-radius:10px">Cancelada</span>':centroBadge(it.estadoPago||'pendiente'))+'</td>'
       +'<td style="padding:.6rem;font-family:var(--fm);font-size:12px;color:var(--muted)">'+escHtml(it.fechaPago||'—')+'</td>'
       +'<td style="padding:.6rem;text-align:center">'+compBtn+'</td>'
       +'<td style="padding:.6rem;text-align:center">'+recBtn+'</td>'
