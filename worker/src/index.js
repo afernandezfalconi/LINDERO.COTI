@@ -555,10 +555,17 @@ export default {
       if (!v) return json({ error: 'Cotización no encontrada o expirada' }, 404, origin);
 
       const rec = JSON.parse(v);
+      // Área que ve el cliente: si se capturó "Área según el plano" se usa ese número
+      // redondo (p.ej. 200 m²), no el 199.99 estimado. Se calcula al render, así corrige
+      // también landings ya publicadas. Si no hay plano, se muestra la estimada guardada.
+      const areaPlanoLanding = rec.campos && parseFloat(rec.campos['area-plano']);
+      const areaCliente = (areaPlanoLanding && areaPlanoLanding > 0)
+        ? `${areaPlanoLanding.toFixed(2)} m²`
+        : (rec.resumenDetalles?.area || '—');
       const detallesLote = `
         <tr><td>Forma</td><td>${rec.resumenDetalles?.forma || '—'}</td></tr>
         <tr><td>Perímetro</td><td>${rec.resumenDetalles?.perim || '—'}</td></tr>
-        <tr><td>Área</td><td>${rec.resumenDetalles?.area || '—'}</td></tr>
+        <tr><td>Área</td><td>${areaCliente}</td></tr>
         <tr><td>Separación</td><td>${rec.resumenDetalles?.sep || '—'}</td></tr>
         <tr><td>Portón</td><td>${rec.resumenDetalles?.porton || '—'}</td></tr>
       `;

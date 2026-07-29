@@ -1719,7 +1719,11 @@ function calc(){
   document.getElementById('r-f').textContent=document.getElementById('cli-f').value||'—';
   document.getElementById('r-u').textContent=document.getElementById('cli-u').value||'—';
   document.getElementById('r-l').textContent=(mz||ln)?(mz+' '+ln).trim():'—';
-  document.getElementById('r-area').textContent=areaEst!==null?areaEst.toFixed(2)+' m²':'—';
+  // El área que ve el CLIENTE (resumen, landing, PDF) usa el "Área según el plano"
+  // cuando se capturó (número redondo, p.ej. 200), para no mostrar el 199.99 estimado
+  // que podría hacer pensar al cliente que se le quita terreno. Si no hay plano, usa la estimada.
+  const areaCliente=(!isNaN(areaPlano)&&areaPlano>0)?areaPlano:areaEst;
+  document.getElementById('r-area').textContent=(areaCliente!==null&&!isNaN(areaCliente))?areaCliente.toFixed(2)+' m²':'—';
   document.getElementById('r-fo').textContent=nL+' lados'+(nL>4?' (irregular)':' (regular)');
   document.getElementById('r-se').textContent=sp+' m entre postes';
   document.getElementById('r-po').textContent=conPorton?pa+' m de vano':'Sin portón';
