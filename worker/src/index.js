@@ -547,6 +547,40 @@ export default {
       }
     }
 
+    // ── ACEPTACIÓN DEL CLIENTE DESDE LA LANDING (público, protegido por token) ──
+    const mAceptar = path.match(/^\/landing\/([a-z0-9]+)\/aceptar$/);
+    if (request.method === 'POST' && mAceptar) {
+      const token = mAceptar[1];
+      if (!(await checkRateLimit(env, ip + ':aceptar'))) {
+        return json({ error: 'Demasiadas solicitudes, intenta en un momento' }, 429, origin);
+      }
+      const folio = await env.COTIZACIONES.get(TOKENS_PREFIX + 'landing:' + token);
+      if (!folio) return json({ error: 'Enlace inválido o expirado' }, 404, origin);
+
+      let body;
+      try { body = await request.json(); } catch (e) { return json({ error: 'Datos inválidos' }, 400, origin); }
+      const firma = (typeof body.firma === 'string' && body.firma.startsWith('data:image/')) ? body.firma : '';
+      const comprobante = (typeof body.comprobante === 'string' && /^data:(image\/|application\/pdf)/.test(body.comprobante)) ? body.comprobante : '';
+      const nombre = (typeof body.nombre === 'string' ? body.nombre : '').trim().slice(0, 120);
+      if (!firma && !comprobante) return json({ error: 'Firma la cotización o adjunta tu comprobante' }, 400, origin);
+      // Límite defensivo para no exceder el valor máximo de KV (25 MB) ni inflar el registro.
+      if ((firma.length + comprobante.length) > 6_000_000) return json({ error: 'El comprobante es muy grande (máx ~4 MB)' }, 413, origin);
+
+      const recRaw = await env.COTIZACIONES.get(KV_PREFIX + folio);
+      if (!recRaw) return json({ error: 'Cotización no encontrada' }, 404, origin);
+      const rec = JSON.parse(recRaw);
+      rec.aceptacionCliente = {
+        firma,
+        comprobante,
+        nombre,
+        aceptadoEn: new Date().toISOString(),
+        ip
+      };
+      rec.actualizadoEn = new Date().toISOString();
+      await env.COTIZACIONES.put(KV_PREFIX + folio, JSON.stringify(rec));
+      return json({ ok: true, aceptadoEn: rec.aceptacionCliente.aceptadoEn }, 200, origin);
+    }
+
     // ── LANDING PAGE PÚBLICA (con token, sin auth) ────────────────────
     const mLanding = path.match(/^\/landing\/([a-z0-9]+)$/);
     if (request.method === 'GET' && mLanding) {
@@ -625,6 +659,36 @@ export default {
         <tr><td>Alambre</td><td>${alambre}</td></tr>
       `;
 
+      // Sección de aceptación del cliente: si ya aceptó, se muestra confirmación; si no, el formulario.
+      const ya = rec.aceptacionCliente;
+      let aceptacionHtml;
+      if (ya && (ya.firma || ya.comprobante)) {
+        const fechaAc = ya.aceptadoEn ? new Date(ya.aceptadoEn).toLocaleString('es-MX') : '';
+        aceptacionHtml = `
+    <div class="aceptacion aceptada">
+      <h3>✓ Cotización aceptada</h3>
+      <p>Recibimos tu aceptación${ya.nombre ? ' de <strong>' + escL(ya.nombre) + '</strong>' : ''}${fechaAc ? ' el ' + escL(fechaAc) : ''}.</p>
+      ${ya.firma ? `<div style="margin-top:.6rem"><img src="${ya.firma}" alt="Firma" style="max-height:90px;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px"></div>` : ''}
+      ${ya.comprobante ? `<p style="color:#1d9e75;margin-top:.5rem">✓ Comprobante de pago recibido.</p>` : ''}
+    </div>`;
+      } else {
+        aceptacionHtml = `
+    <div class="aceptacion" id="ac-form">
+      <h3>Aceptación del cliente</h3>
+      <p>Firma para aceptar esta cotización. Si ya realizaste el pago, adjunta tu comprobante (opcional).</p>
+      <label class="ac-lbl">Nombre de quien firma</label>
+      <input id="ac-nombre" class="ac-inp" type="text" value="${escL(rec.resumenCliente || '')}" placeholder="Tu nombre">
+      <label class="ac-lbl">Firma <span style="font-weight:400;color:#777">(dibuja con el dedo o el mouse)</span></label>
+      <div class="ac-canvas-wrap"><canvas id="ac-canvas" width="700" height="200"></canvas></div>
+      <button type="button" class="ac-btn-sec" onclick="acLimpiar()">Limpiar firma</button>
+      <label class="ac-lbl">Comprobante de pago <span style="font-weight:400;color:#777">(opcional — imagen o PDF, máx 4 MB)</span></label>
+      <input id="ac-file" class="ac-inp" type="file" accept="image/*,application/pdf">
+      <div id="ac-file-name" style="font-size:.85rem;color:#666;margin-top:.3rem"></div>
+      <button type="button" class="ac-btn" id="ac-enviar" onclick="acEnviar()">Aceptar y enviar</button>
+      <div id="ac-msg" style="margin-top:.8rem;font-size:.9rem"></div>
+    </div>`;
+      }
+
       const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -646,6 +710,16 @@ export default {
     td { padding: 0.75rem; border-bottom: 1px solid #ddd; }
     .total-section { background: #13241f; color: white; padding: 2rem; border-radius: 8px; text-align: center; margin-top: 2rem; }
     .total-valor { font-size: 2.5rem; font-weight: bold; color: #89D7B7; }
+    .aceptacion { margin-top: 2rem; padding: 1.5rem; border: 1px solid #cfe0d8; border-radius: 8px; background: #f7fbf9; }
+    .aceptacion h3 { margin-bottom: .5rem; color: #13241f; }
+    .aceptacion.aceptada { background: #eef9f4; border-color: #89D7B7; }
+    .ac-lbl { display: block; margin: 1rem 0 .3rem; font-weight: 600; font-size: .9rem; color: #333; }
+    .ac-inp { width: 100%; padding: .6rem; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; }
+    .ac-canvas-wrap { border: 1px dashed #9bbcae; border-radius: 6px; background: #fff; touch-action: none; }
+    #ac-canvas { width: 100%; height: 200px; display: block; cursor: crosshair; touch-action: none; }
+    .ac-btn { margin-top: 1.2rem; width: 100%; padding: .9rem; border: none; border-radius: 6px; background: #13241f; color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    .ac-btn:disabled { opacity: .6; cursor: default; }
+    .ac-btn-sec { margin-top: .5rem; padding: .4rem .9rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; font-size: .85rem; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -665,7 +739,52 @@ export default {
       <div>Precio Total</div>
       <div class="total-valor">${rec.resumenTotal || '$—'}</div>
     </div>
+    ${aceptacionHtml}
   </div>
+  <script>
+  (function(){
+    var canvas=document.getElementById('ac-canvas');
+    if(!canvas) return;
+    var ctx=canvas.getContext('2d');
+    ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#13241f';
+    var drawing=false, hasSig=false, last=null;
+    function pos(e){
+      var r=canvas.getBoundingClientRect();
+      var t=(e.touches&&e.touches[0])||e;
+      return { x:(t.clientX-r.left)*(canvas.width/r.width), y:(t.clientY-r.top)*(canvas.height/r.height) };
+    }
+    function start(e){ e.preventDefault(); drawing=true; last=pos(e); }
+    function move(e){ if(!drawing)return; e.preventDefault(); var p=pos(e); ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); last=p; hasSig=true; }
+    function end(){ drawing=false; }
+    canvas.addEventListener('mousedown',start); canvas.addEventListener('mousemove',move); window.addEventListener('mouseup',end);
+    canvas.addEventListener('touchstart',start,{passive:false}); canvas.addEventListener('touchmove',move,{passive:false}); canvas.addEventListener('touchend',end);
+    window.acLimpiar=function(){ ctx.clearRect(0,0,canvas.width,canvas.height); hasSig=false; };
+    var fileData='';
+    var fileInput=document.getElementById('ac-file');
+    fileInput.addEventListener('change',function(){
+      var f=fileInput.files&&fileInput.files[0]; var nm=document.getElementById('ac-file-name');
+      if(!f){ fileData=''; nm.textContent=''; return; }
+      if(f.size>4*1024*1024){ alert('El archivo supera 4 MB'); fileInput.value=''; fileData=''; nm.textContent=''; return; }
+      if(!(/^image\//.test(f.type)||f.type==='application/pdf')){ alert('Solo imagen o PDF'); fileInput.value=''; return; }
+      var rd=new FileReader(); rd.onload=function(ev){ fileData=ev.target.result; nm.textContent='Adjunto: '+f.name; }; rd.readAsDataURL(f);
+    });
+    window.acEnviar=function(){
+      var msg=document.getElementById('ac-msg'); var btn=document.getElementById('ac-enviar');
+      var firma = hasSig ? canvas.toDataURL('image/png') : '';
+      if(!firma && !fileData){ msg.style.color='#c0392b'; msg.textContent='Firma o adjunta tu comprobante antes de enviar.'; return; }
+      btn.disabled=true; btn.textContent='Enviando...'; msg.style.color='#666'; msg.textContent='';
+      var nombre=(document.getElementById('ac-nombre')||{}).value||'';
+      fetch(location.pathname.replace(/\/+$/,'')+'/aceptar',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ firma:firma, comprobante:fileData, nombre:nombre })
+      }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+        .then(function(res){
+          if(res.ok){ document.getElementById('ac-form').innerHTML='<h3>✓ ¡Gracias!</h3><p>Recibimos tu aceptación'+(fileData?' y tu comprobante de pago':'')+'. Nos pondremos en contacto contigo.</p>'; }
+          else { btn.disabled=false; btn.textContent='Aceptar y enviar'; msg.style.color='#c0392b'; msg.textContent=(res.d&&res.d.error)||'No se pudo enviar. Intenta de nuevo.'; }
+        }).catch(function(){ btn.disabled=false; btn.textContent='Aceptar y enviar'; msg.style.color='#c0392b'; msg.textContent='Error de conexión. Intenta de nuevo.'; });
+    };
+  })();
+  </script>
 </body>
 </html>`;
 
