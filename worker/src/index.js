@@ -562,6 +562,16 @@ export default {
       const areaCliente = (areaPlanoLanding && areaPlanoLanding > 0)
         ? `${areaPlanoLanding.toFixed(2)} m²`
         : (rec.resumenDetalles?.area || '—');
+
+      // Datos del lote bajo el nombre del cliente. Solo se muestran si existen;
+      // si el campo está vacío, no se incluye la línea en la landing.
+      const escL = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const ubic = String((rec.campos && rec.campos['cli-u']) || '').trim();
+      const mz   = String((rec.campos && rec.campos['l-mz']) || '').trim();
+      const lote = String((rec.campos && rec.campos['l-nu']) || '').trim();
+      const ubicHtml = ubic ? `<br><strong>Ubicación:</strong> ${escL(ubic)}` : '';
+      const mzLoteParts = [mz ? `Mz ${escL(mz)}` : '', lote ? `Lote ${escL(lote)}` : ''].filter(Boolean).join(' · ');
+      const mzLoteHtml = mzLoteParts ? `<br><strong>Manzana y Lote:</strong> ${mzLoteParts}` : '';
       const detallesLote = `
         <tr><td>Forma</td><td>${rec.resumenDetalles?.forma || '—'}</td></tr>
         <tr><td>Perímetro</td><td>${rec.resumenDetalles?.perim || '—'}</td></tr>
@@ -645,7 +655,7 @@ export default {
       <div class="fecha">Folio: ${rec.resumenFolio}</div>
     </div>
     <div class="cliente">
-      <strong>Cliente:</strong> ${rec.resumenCliente || '—'}
+      <strong>Cliente:</strong> ${rec.resumenCliente || '—'}${ubicHtml}${mzLoteHtml}
     </div>
     <h3>Detalle del Lote</h3>
     <table><tbody>${detallesLote}</tbody></table>${croquis}
