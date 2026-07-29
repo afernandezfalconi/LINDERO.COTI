@@ -177,6 +177,11 @@ select option{background:var(--bg3)}
   .rp{display:none}
   .hdr{display:none}
   #print-letterhead{display:block !important;color:#222;background:#fff;padding:1.5rem;font-family:var(--fb)}
+  /* Ocultar TODOS los modales/overlays: si se imprime con uno abierto (p.ej. el
+     botón PDF vive dentro del modal de compartir), no debe salir sobre la cotización. */
+  #modal-overlay,#modal-exportar,#modal-landing,#modal-empresa-overlay,#modal-comp-overlay,
+  #modal-finanzas-overlay,#modal-admin,#modal-auditoria,#providers-modal,#edit-prov-modal,
+  #chart-modal,#modal-pago,#toast{ display:none !important; }
 }
 .ph-header{display:flex;align-items:flex-start;gap:1rem;padding-bottom:1rem}
 #ph-logo{max-height:70px;max-width:140px;object-fit:contain}
