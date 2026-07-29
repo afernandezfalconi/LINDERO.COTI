@@ -172,16 +172,34 @@ select option{background:var(--bg3)}
   input[type=text],input[type=number],select{font-size:16px} /* evita zoom automático en iOS al enfocar */
 }
 @media print{
-  body{background:#fff !important;color:#222 !important}
-  .fp{display:none}
-  .rp{display:none}
-  .hdr{display:none}
-  #print-letterhead{display:block !important;color:#222;background:#fff;padding:1.5rem;font-family:var(--fb)}
+  @page{ size:letter; margin:9mm; }
+  /* Nada debe ocupar la hoja 1 salvo el membrete. .app/body tenían min-height:100vh
+     y generaban una hoja en blanco antes de la cotización. */
+  html,body{ min-height:0 !important; height:auto !important; }
+  body{background:#fff !important;color:#222 !important;background-image:none !important}
+  .app,.ibar,.hdr,.fp,.rp,#splash{ display:none !important }
   /* Ocultar TODOS los modales/overlays: si se imprime con uno abierto (p.ej. el
      botón PDF vive dentro del modal de compartir), no debe salir sobre la cotización. */
   #modal-overlay,#modal-exportar,#modal-landing,#modal-empresa-overlay,#modal-comp-overlay,
   #modal-finanzas-overlay,#modal-admin,#modal-auditoria,#providers-modal,#edit-prov-modal,
   #chart-modal,#modal-pago,#toast{ display:none !important; }
+
+  /* Membrete compacto para que TODO (incluida la firma) entre en 1 sola hoja. */
+  #print-letterhead{display:block !important;color:#222;background:#fff;padding:0;font-family:var(--fb);
+    font-size:11.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #print-letterhead .ph-rule{margin:0 0 .45rem}
+  #print-letterhead .ph-cliente{line-height:1.45;margin-bottom:.35rem;font-size:11.5px}
+  #print-letterhead #ph-img-wrap{margin:.5rem 0 !important}
+  #print-letterhead #ph-lote-img{max-height:118px;width:auto}
+  #print-letterhead .ph-table{margin-bottom:.35rem;font-size:10.5px;break-inside:avoid}
+  #print-letterhead .ph-table th{padding:.18rem .5rem;font-size:10px}
+  #print-letterhead .ph-table td{padding:.13rem .5rem}
+  #print-letterhead .ph-total{margin:.4rem 0;padding:.45rem .8rem;font-size:1rem;break-inside:avoid}
+  #print-letterhead .ph-notas{margin-top:.35rem;font-size:8px;line-height:1.3}
+  #print-letterhead .ph-notas p{margin:.12rem 0}
+  #print-letterhead .ph-firma{margin-top:.9rem;break-inside:avoid}
+  #print-letterhead .ph-firma-linea{margin-top:.8rem}
+  #print-letterhead .ph-header,#print-letterhead .ph-cliente{break-inside:avoid}
 }
 .ph-header{display:flex;align-items:flex-start;gap:1rem;padding-bottom:1rem}
 #ph-logo{max-height:70px;max-width:140px;object-fit:contain}
