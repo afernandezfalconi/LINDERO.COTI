@@ -765,7 +765,7 @@ export default {
       var f=fileInput.files&&fileInput.files[0]; var nm=document.getElementById('ac-file-name');
       if(!f){ fileData=''; nm.textContent=''; return; }
       if(f.size>4*1024*1024){ alert('El archivo supera 4 MB'); fileInput.value=''; fileData=''; nm.textContent=''; return; }
-      if(!(/^image\//.test(f.type)||f.type==='application/pdf')){ alert('Solo imagen o PDF'); fileInput.value=''; return; }
+      if(!(f.type.indexOf('image/')===0||f.type==='application/pdf')){ alert('Solo imagen o PDF'); fileInput.value=''; return; }
       var rd=new FileReader(); rd.onload=function(ev){ fileData=ev.target.result; nm.textContent='Adjunto: '+f.name; }; rd.readAsDataURL(f);
     });
     window.acEnviar=function(){
@@ -774,7 +774,8 @@ export default {
       if(!firma && !fileData){ msg.style.color='#c0392b'; msg.textContent='Firma o adjunta tu comprobante antes de enviar.'; return; }
       btn.disabled=true; btn.textContent='Enviando...'; msg.style.color='#666'; msg.textContent='';
       var nombre=(document.getElementById('ac-nombre')||{}).value||'';
-      fetch(location.pathname.replace(/\/+$/,'')+'/aceptar',{
+      var base=location.pathname; if(base.charAt(base.length-1)==='/') base=base.slice(0,-1);
+      fetch(base+'/aceptar',{
         method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({ firma:firma, comprobante:fileData, nombre:nombre })
       }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
@@ -792,7 +793,9 @@ export default {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'public, max-age=3600',
+          // La landing es interactiva y su estado cambia (aceptación del cliente),
+          // por eso NO se cachea: el cliente y el vendedor deben ver siempre lo actual.
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
           'X-Content-Type-Options': 'nosniff',
           ...corsHeaders(origin),
         },
