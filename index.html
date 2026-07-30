@@ -1920,11 +1920,15 @@ function actualizarBotonGuardar(){
 function nuevaCotizacion(){
   if(!confirm('¿Iniciar una nueva cotización?\n\nSe limpiarán los datos del cliente y del lote. Si no guardaste la cotización actual, se perderá.\n\nLos precios y datos de empresa se conservan.')) return;
   cotizacionActualKey=null;
-  ['cli-n','cli-u','l-mz','l-nu','area-plano'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  // Datos específicos de la cotización (se conservan precios y datos de empresa).
+  ['cli-n','cli-u','l-mz','l-nu','area-plano','sep-v','po-a'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  const mrg=document.getElementById('margen'); if(mrg) mrg.value='0';
+  const mn=document.getElementById('monto-negociado'); if(mn) mn.value='';   // si no, el total quedaba fijo al monto anterior
+  const mct=document.getElementById('margen-calculado-txt'); if(mct) mct.textContent='—';
   try{ borrar(); }catch(e){}
   nL=4;
   document.getElementById('ln').textContent=4;
-  buildLados([]);
+  buildLados(new Array(nL).fill('')); // vaciar medidas (buildLados([]) conservaba las anteriores)
   updPortSel();
   document.getElementById('cli-f').value='';
   // Reset de pago (fuente única: "Recibos de Pago")
@@ -2171,6 +2175,8 @@ function resetCamposCotizacion(){
   SELECTS_SIMPLES.forEach(id=>{const el=document.getElementById(id); if(el) el.selectedIndex=0;});
   const mn=document.getElementById('monto-negociado'); if(mn) mn.value='';
   const mct=document.getElementById('margen-calculado-txt'); if(mct) mct.textContent='—';
+  // Medidas del lote (buildLados([]) conserva las previas si no se limpian antes)
+  const lg=document.getElementById('lgrid'); if(lg) lg.querySelectorAll('input').forEach(i=>i.value='');
   // Trazado / plano
   pts=[]; ok=false;
   const badge=document.getElementById('badge-ok'); if(badge) badge.style.display='none';
