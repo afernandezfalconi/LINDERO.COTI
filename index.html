@@ -2163,9 +2163,31 @@ function cerrarListaCotizaciones(){
   document.getElementById('modal-overlay').style.display='none';
 }
 
+// Deja el formulario en estado limpio ANTES de aplicar otra cotización, para que no
+// queden datos/plano/monto negociado de la anterior (bug: solo se asignaban los campos
+// presentes en los datos nuevos, los ausentes conservaban el valor anterior).
+function resetCamposCotizacion(){
+  CAMPOS_SIMPLES.forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  SELECTS_SIMPLES.forEach(id=>{const el=document.getElementById(id); if(el) el.selectedIndex=0;});
+  const mn=document.getElementById('monto-negociado'); if(mn) mn.value='';
+  const mct=document.getElementById('margen-calculado-txt'); if(mct) mct.textContent='—';
+  // Trazado / plano
+  pts=[]; ok=false;
+  const badge=document.getElementById('badge-ok'); if(badge) badge.style.display='none';
+  const hint=document.getElementById('hint'); if(hint) hint.style.display='';
+  const wrap=document.getElementById('r-lote-img-wrap'); if(wrap) wrap.style.display='none';
+  const img=document.getElementById('r-lote-img'); if(img) img.removeAttribute('src');
+  // Pago / egresos
+  pagoActual=null; recibosActuales=[]; pagoComprobanteArchivo=null;
+  try{ resetResumenPago(); }catch(e){}
+  egresos=[]; try{ renderizarEgresos(); }catch(e){}
+}
+
 async function cargarCotizacion(key){
   try{
     const data=await apiFetch('/api/cotizaciones/'+encodeURIComponent(key));
+
+    resetCamposCotizacion(); // limpiar antes de aplicar (evita datos/plano de la cotización previa)
 
     CAMPOS_SIMPLES.forEach(id=>{
       const el=document.getElementById(id);
