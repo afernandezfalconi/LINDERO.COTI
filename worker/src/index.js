@@ -151,7 +151,12 @@ async function createAuditLog(env, user, action, resource, details = {}) {
   };
 
   const key = AUDIT_PREFIX + timestamp + ':' + Math.random().toString(36);
-  await env.COTIZACIONES.put(key, JSON.stringify(auditEntry), { expirationTtl: 90 * 24 * 3600 }); // 90 días
+  // La metadata replica los campos ligeros para poder listar la bitácora con un solo
+  // KV.list() SIN un get por clave (cientos de gets rompían GET /api/audit al crecer).
+  await env.COTIZACIONES.put(key, JSON.stringify(auditEntry), {
+    expirationTtl: 90 * 24 * 3600, // 90 días
+    metadata: { timestamp, usuario: user.email, accion: action, recurso: String(resource == null ? '' : resource).slice(0, 120) },
+  });
 }
 
 // ── PROVEEDORES Y HISTORIAL DE PRECIOS ────────────────────────────────
@@ -1158,16 +1163,24 @@ export default {
           return json({ error: 'Sin permisos' }, 403, origin);
         }
 
-        const out = [];
+        // Listar TODAS las claves (nombres + metadata: barato, sin get por clave),
+        // quedarnos con las más recientes y solo hacer get de las viejas (sin metadata),
+        // acotado, para no romper la petición con cientos de subrequests.
+        const keys = [];
         let cursor;
         do {
-          const res = await env.COTIZACIONES.list({ prefix: AUDIT_PREFIX, cursor, limit: 100 });
-          for (const k of res.keys) {
-            const audit = await env.COTIZACIONES.get(k.name);
-            if (audit) out.push(JSON.parse(audit));
-          }
+          const res = await env.COTIZACIONES.list({ prefix: AUDIT_PREFIX, cursor, limit: 1000 });
+          keys.push(...res.keys);
           cursor = res.list_complete ? null : res.cursor;
         } while (cursor);
+        keys.sort((a, b) => (a.name < b.name ? 1 : -1)); // desc por timestamp (va en el nombre)
+        const recientes = keys.slice(0, 200);
+        const out = [];
+        let gets = 0;
+        for (const k of recientes) {
+          if (k.metadata && k.metadata.accion) { out.push(k.metadata); }             // nuevas: sin get
+          else if (gets < 120) { gets++; const v = await env.COTIZACIONES.get(k.name); if (v) out.push(JSON.parse(v)); } // viejas: get acotado
+        }
 
         return json({ items: out.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)) }, 200, origin);
       }
