@@ -1775,8 +1775,18 @@ function calc(){
   const tot=parts.some(p=>p!==null)?parts.reduce((s,p)=>s+(p||0),0):null;
   window.costoBase=tot; // guardar para calcularMargenDesdeTotal()
   const pend=parts.filter(p=>p===null).length;
-  const margenPct=parseFloat(document.getElementById('margen').value)||0;
-  const totConMargen = tot!==null ? tot*(1+margenPct/100) : null;
+  // Si se ingresó el "Monto total negociado", el total es EXACTAMENTE ese monto:
+  // el % de utilidad pasa a ser informativo y se deriva con precisión completa, así el
+  // total no varía por el redondeo del % (antes 40.2% daba 15,994.77 en vez de 16,000).
+  let margenPct=parseFloat(document.getElementById('margen').value)||0;
+  const montoNeg=parseFloat(document.getElementById('monto-negociado')?.value);
+  let totConMargen;
+  if(!isNaN(montoNeg)&&montoNeg>0&&tot!==null){
+    totConMargen=montoNeg;
+    margenPct=tot>0?((montoNeg-tot)/tot)*100:0;
+  }else{
+    totConMargen = tot!==null ? tot*(1+margenPct/100) : null;
+  }
 
   const mz=document.getElementById('l-mz').value;
   const ln=document.getElementById('l-nu').value;
@@ -1821,7 +1831,7 @@ function calc(){
   document.getElementById('r-costo-base').textContent=tot!==null?$m(tot):'$—';
   if(tot!==null && margenPct>0){
     document.getElementById('r-margen-row').style.display='flex';
-    document.getElementById('r-margen-val').textContent='+'+margenPct+'% · '+$m(tot*margenPct/100);
+    document.getElementById('r-margen-val').textContent='+'+margenPct.toFixed(2)+'% · '+$m(totConMargen-tot);
   } else {
     document.getElementById('r-margen-row').style.display='none';
   }
@@ -2953,12 +2963,13 @@ function calcularMargenDesdeTotal(){
   // Calcular margen: (montoNegociado - costoBase) / costoBase * 100
   const margenCalculado=((montoNegociado - window.costoBase)/window.costoBase)*100;
 
-  // Actualizar el input de margen
-  document.getElementById('margen').value=Math.round(margenCalculado*10)/10; // redondear a 1 decimal
+  // Actualizar el input de margen (2 decimales; el total real se fija exacto al monto
+  // negociado en calc(), así que este % es solo referencia visual)
+  document.getElementById('margen').value=Math.round(margenCalculado*100)/100;
 
   // Mostrar info
   const diferencia=montoNegociado - window.costoBase;
-  document.getElementById('margen-calculado-txt').textContent=`📊 Margen calculado: ${margenCalculado.toFixed(1)}% (+${$m(diferencia)})`;
+  document.getElementById('margen-calculado-txt').textContent=`📊 Margen calculado: ${margenCalculado.toFixed(2)}% (+${$m(diferencia)}) — total exacto: ${$m(montoNegociado)}`;
 
   // Recalcular todo
   calc();
