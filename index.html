@@ -866,7 +866,20 @@ function irAlHome(){
             </div>
           </div>
         </div>
-        <div class="crow"><div><div class="cn">Mano de obra</div><div class="cs">$500/persona × 2 × días</div></div><div style="font-family:var(--fm);font-size:13px;color:var(--green);text-align:right" id="mo-d">$0</div></div>
+        <div class="crow"><div><div class="cn">Mano de obra</div><div class="cs" id="mo-src">$500/persona × 2 × días</div></div><div style="font-family:var(--fm);font-size:13px;color:var(--green);text-align:right" id="mo-d">$0</div></div>
+        <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)">
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-size:14px">
+            <input type="checkbox" id="chk-subcontrato" onchange="toggleSubcontrato()">
+            <span>Subcontratar la instalación a un tercero <span style="color:var(--muted);font-size:12px">(precio fijo; reemplaza la mano de obra)</span></span>
+          </label>
+          <div id="subcontrato-wrap" style="display:none;margin-top:.6rem">
+            <div class="f" style="margin-bottom:0">
+              <label>Precio del subcontratista (solo instalación)</label>
+              <div class="ip" style="max-width:220px"><span>$</span><input type="number" id="subcontrato-precio" min="0" step="0.01" placeholder="0.00" oninput="calc()"></div>
+            </div>
+            <div class="ni" style="margin-top:.5rem">Reemplaza la mano de obra calculada. Los materiales se cotizan aparte.</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1645,6 +1658,11 @@ function toggleFundInfo(){
 }
 
 // ── CÁLCULO ───────────────────────────────────────────────────────
+function toggleSubcontrato(){
+  const on=document.getElementById('chk-subcontrato').checked;
+  document.getElementById('subcontrato-wrap').style.display=on?'block':'none';
+  calc();
+}
 function getP(){let t=0; document.getElementById('lgrid').querySelectorAll('input').forEach(i=>t+=parseFloat(i.value)||0); return t;}
 function getSp(){const v=document.getElementById('sep').value; return v==='custom'?(parseFloat(document.getElementById('sep-v').value)||2):parseFloat(v);}
 function $m(v){if(v===null||v===undefined||isNaN(v))return'—'; return'$'+v.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -1714,7 +1732,13 @@ function calc(){
   const rol=mAl>0?Math.ceil(mAl/mR):0;
   const leq=per/60;
   const dias=per>0?Math.max(1,Math.ceil(leq/1.5)):0;
-  const cMO=dias*2*500;
+  // Mano de obra: por días; si se subcontrata la instalación, precio fijo (solo M.O.).
+  let cMO=dias*2*500;
+  const subOn=document.getElementById('chk-subcontrato')&&document.getElementById('chk-subcontrato').checked;
+  const subPrecio=parseFloat((document.getElementById('subcontrato-precio')||{}).value);
+  if(subOn && !isNaN(subPrecio) && subPrecio>0) cMO=subPrecio;
+  const moSrc=document.getElementById('mo-src');
+  if(moSrc) moSrc.textContent = (subOn && cMO===subPrecio) ? 'Subcontratado (precio fijo)' : '$500/persona × 2 × días';
 
   let cL=null;
   if(mp==='buy'){
@@ -1848,7 +1872,7 @@ function calc(){
 // Lista de IDs de inputs simples (texto/número) que se guardan tal cual
 const CAMPOS_SIMPLES=['cli-n','cli-f','cli-u','l-mz','l-nu','sep-v','po-a','margen','area-plano',
   'p-pw','m-pw','p-lc','p-lw','p-e1','p-e2','p-ce','p-ar','p-gr','p-va','p-al','p-gp',
-  'dim-lc-w','dim-lc-h','dim-lw-d','dim-lw-h','dim-e-w','dim-e-h'];
+  'dim-lc-w','dim-lc-h','dim-lw-d','dim-lw-h','dim-e-w','dim-e-h','subcontrato-precio'];
 const SELECTS_SIMPLES=['sep','modo-p','po-l','hebras'];
 
 // ── NUBE (Cloudflare Worker + KV) ─────────────────────────────────
@@ -1930,6 +1954,8 @@ function nuevaCotizacion(){
   const mrg=document.getElementById('margen'); if(mrg) mrg.value='0';
   const mn=document.getElementById('monto-negociado'); if(mn) mn.value='';   // si no, el total quedaba fijo al monto anterior
   const mct=document.getElementById('margen-calculado-txt'); if(mct) mct.textContent='—';
+  const csp=document.getElementById('subcontrato-precio'); if(csp) csp.value='';
+  const csb=document.getElementById('chk-subcontrato'); if(csb){ csb.checked=false; const w=document.getElementById('subcontrato-wrap'); if(w) w.style.display='none'; }
   try{ borrar(); }catch(e){}
   nL=4;
   document.getElementById('ln').textContent=4;
@@ -1992,6 +2018,7 @@ function recopilarEstado(){
   // Monto negociado
   const montoNegociado=document.getElementById('monto-negociado')?.value;
   if(montoNegociado) estado.montoNegociado=parseFloat(montoNegociado);
+  estado.subcontrato=!!(document.getElementById('chk-subcontrato')&&document.getElementById('chk-subcontrato').checked);
 
   return estado;
 }
@@ -2180,6 +2207,7 @@ function resetCamposCotizacion(){
   SELECTS_SIMPLES.forEach(id=>{const el=document.getElementById(id); if(el) el.selectedIndex=0;});
   const mn=document.getElementById('monto-negociado'); if(mn) mn.value='';
   const mct=document.getElementById('margen-calculado-txt'); if(mct) mct.textContent='—';
+  const cs=document.getElementById('chk-subcontrato'); if(cs){ cs.checked=false; const w=document.getElementById('subcontrato-wrap'); if(w) w.style.display='none'; }
   // Medidas del lote (buildLados([]) conserva las previas si no se limpian antes)
   const lg=document.getElementById('lgrid'); if(lg) lg.querySelectorAll('input').forEach(i=>i.value='');
   // Trazado / plano
@@ -2253,6 +2281,10 @@ async function cargarCotizacion(key){
     if(data.montoNegociado){
       document.getElementById('monto-negociado').value=data.montoNegociado;
     }
+
+    // Subcontrato de instalación (la casilla; el precio ya vino en CAMPOS_SIMPLES)
+    const chkSub=document.getElementById('chk-subcontrato');
+    if(chkSub){ chkSub.checked=!!data.subcontrato; document.getElementById('subcontrato-wrap').style.display=chkSub.checked?'block':'none'; }
 
     onDimChange(); // recalcula etiquetas + calc()
 
@@ -2847,7 +2879,11 @@ function calcularEscenario(matX, modoX){
   const mR=parseFloat(document.getElementById('m-pw').value)||200;
   const leq=per/60;
   const dias=per>0?Math.max(1,Math.ceil(leq/1.5)):0;
-  const cMO=dias*2*500;
+  let cMO=dias*2*500;
+  if(document.getElementById('chk-subcontrato')&&document.getElementById('chk-subcontrato').checked){
+    const sp=parseFloat((document.getElementById('subcontrato-precio')||{}).value);
+    if(!isNaN(sp)&&sp>0) cMO=sp;
+  }
 
   let cL=null;
   if(modoX==='buy'){
