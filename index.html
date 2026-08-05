@@ -760,19 +760,24 @@ function irAlHome(){
     <div class="sec-b">
       <div style="margin-bottom:1.25rem;padding-bottom:1.25rem;border-bottom:1px solid var(--border)">
         <div style="font-size:12px;color:var(--muted);font-family:var(--fm);margin-bottom:.4rem">Catálogo de proveedores</div>
+        <div class="f" style="margin-bottom:.6rem">
+          <label>Proveedor de <b>POSTES</b></label>
+          <select id="sel-prov-postes" onchange="cargarProveedorGrupo('postes',this)">
+            <option value="">— selecciona —</option>
+          </select>
+        </div>
         <div class="row2" style="align-items:flex-end">
           <div class="f" style="margin-bottom:0">
-            <label>Cargar precios de un proveedor guardado</label>
-            <select id="sel-proveedor" onchange="cargarProveedor()">
-              <option value="">— selecciona un proveedor —</option>
+            <label>Proveedor del <b>RESTO</b> de materiales</label>
+            <select id="sel-prov-resto" onchange="cargarProveedorGrupo('resto',this)">
+              <option value="">— selecciona —</option>
             </select>
           </div>
           <div style="display:flex;gap:6px">
             <button class="tb ok" style="padding:8px 14px" onclick="abrirGuardarProveedor()">💾 Guardar precios actuales</button>
-            <button class="tb del" style="padding:8px 14px" id="btn-del-proveedor" onclick="eliminarProveedorActual()" disabled>✕</button>
           </div>
         </div>
-        <div class="ni" style="margin-top:.6rem">Guarda los precios de cada proveedor para cambiar entre ellos sin volver a capturar todo cada vez.</div>
+        <div class="ni" style="margin-top:.6rem">Elige el <b>mismo</b> proveedor en ambos (si compras todo en un lugar) o <b>distintos</b> (postes en un proveedor y el resto en otro). Al seleccionar, se llenan solo los precios de ese grupo. Para eliminar proveedores, usa la sección <b>Proveedores</b> del menú.</div>
       </div>
 
       <div style="margin-bottom:1.25rem;padding-bottom:1.25rem;border-bottom:1px solid var(--border)">
@@ -2319,49 +2324,40 @@ function getProveedoresLocal(){
   return out;
 }
 
-async function refrescarSelectorProveedores(seleccionar){
-  const sel=document.getElementById('sel-proveedor');
-  sel.innerHTML='<option value="">— selecciona un proveedor —</option>';
+async function refrescarSelectorProveedores(){
+  const selP=document.getElementById('sel-prov-postes');
+  const selR=document.getElementById('sel-prov-resto');
+  if(!selP || !selR) return;
+  const base='<option value="">— selecciona —</option>';
+  selP.innerHTML=base; selR.innerHTML=base;
+  const addOpt=(sel,value,text,provData)=>{
+    const opt=document.createElement('option');
+    opt.value=value; opt.textContent=text;
+    if(provData) opt.dataset.providerData=provData;
+    sel.appendChild(opt);
+  };
 
-  // Intentar cargar del API
+  // API (se agregan a AMBOS selectores)
   const token=obtenerToken();
   if(token){
     try{
       const user=obtenerUsuarioActual();
-      const resp=await fetch(API_BASE+'/api/providers', {
-        headers:{'X-Auth-Token':token,'X-User-Email':user.email}
-      });
+      const resp=await fetch(API_BASE+'/api/providers', {headers:{'X-Auth-Token':token,'X-User-Email':user.email}});
       if(resp.ok){
-        const data=await resp.json();
-        (data.items||[]).forEach(p=>{
-          const opt=document.createElement('option');
-          opt.value=p.id;
-          opt.textContent=`${p.nombre} — ${(p.materiales||[]).length} material(es)`;
-          opt.dataset.providerId=p.id;
-          opt.dataset.providerData=JSON.stringify(p);
-          sel.appendChild(opt);
+        (( await resp.json()).items||[]).forEach(p=>{
+          const txt=`${p.nombre} — ${(p.materiales||[]).length} material(es)`;
+          const data=JSON.stringify(p);
+          addOpt(selP,p.id,txt,data); addOpt(selR,p.id,txt,data);
         });
       }
-    }catch(e){
-      console.warn('No se pudo cargar proveedores del API:', e);
-    }
+    }catch(e){ console.warn('No se pudo cargar proveedores del API:', e); }
   }
 
-  // Fallback: cargar del localStorage
+  // Fallback local (a ambos)
   const provsLocal=getProveedoresLocal();
-  if(Object.keys(provsLocal).length>0){
-    if(sel.children.length>1) sel.innerHTML+='<optgroup label="Guardados localmente">';
-    Object.keys(provsLocal).sort().forEach(nombre=>{
-      const opt=document.createElement('option');
-      opt.value='local:'+nombre;
-      opt.textContent=nombre+' (local)';
-      opt.dataset.isLocal='true';
-      sel.appendChild(opt);
-    });
-  }
-
-  if(seleccionar) sel.value=seleccionar;
-  document.getElementById('btn-del-proveedor').disabled = !sel.value;
+  Object.keys(provsLocal).sort().forEach(nombre=>{
+    addOpt(selP,'local:'+nombre,nombre+' (local)'); addOpt(selR,'local:'+nombre,nombre+' (local)');
+  });
 }
 
 function abrirGuardarProveedor(){
@@ -2383,47 +2379,43 @@ function abrirGuardarProveedor(){
   }
 }
 
-async function cargarProveedor(){
-  const sel=document.getElementById('sel-proveedor');
+// Aplica los precios de un proveedor SOLO al grupo indicado ('postes' o 'resto'),
+// para que puedas comprar postes en un lugar y el resto de materiales en otro.
+async function cargarProveedorGrupo(grupo, sel){
   const valor=sel.value;
-  document.getElementById('btn-del-proveedor').disabled=!valor;
   if(!valor) return;
-
   try{
-    let datos;
-
+    let datos={};
     if(valor.startsWith('local:')){
-      // Cargar del localStorage
-      const nombre=valor.replace('local:','');
-      datos=JSON.parse(localStorage.getItem(PROV_STORAGE_PREFIX+nombre));
+      datos=JSON.parse(localStorage.getItem(PROV_STORAGE_PREFIX+valor.replace('local:','')))||{};
     }else{
-      // Cargar del API
-      const option=sel.querySelector(`option[value="${valor}"]`);
-      if(option.dataset.providerData){
+      const option=sel.options[sel.selectedIndex];
+      if(option && option.dataset.providerData){
         const provider=JSON.parse(option.dataset.providerData);
-        // Aplicar el precio de cada material del proveedor a su campo del cotizador
-        datos={};
         (provider.materiales||[]).forEach(m=>{
           const cat=CATALOGO_MATERIALES.find(c=>c.tipo===m.tipo);
           if(cat && cat.costId && m.precio){
-            // Grampas: el precio es por caja; el cotizador usa $/kg -> desglosar
-            let valor=m.precio;
-            if(m.tipo==='grampas' && m.kgPorCaja>0) valor=m.precio/m.kgPorCaja;
-            datos[cat.costId]=valor;
+            let v=m.precio;
+            if(m.tipo==='grampas' && m.kgPorCaja>0) v=m.precio/m.kgPorCaja; // grampas: por caja -> $/kg
+            datos[cat.costId]=v;
           }
           if(m.tipo==='alambre' && m.metrosPorRollo) datos['m-pw']=m.metrosPorRollo;
         });
       }
     }
-
-    if(!datos) return;
-    PROV_CAMPOS.forEach(id=>{
+    // Campos de ESTE grupo: postes = poste-*; resto = todo lo demás (+ m-pw del alambre)
+    const esPostes = grupo==='postes';
+    const ids=new Set(CATALOGO_MATERIALES.filter(c=> esPostes === c.tipo.startsWith('poste-')).map(c=>c.costId));
+    if(!esPostes) ids.add('m-pw');
+    let aplicados=0;
+    ids.forEach(id=>{
       const el=document.getElementById(id);
-      if(el && datos[id]!==undefined && datos[id]!=='') el.value=datos[id];
+      if(el && datos[id]!==undefined && datos[id]!==''){ el.value=datos[id]; aplicados++; }
     });
     onDimChange();
     const nombreProveedor=sel.options[sel.selectedIndex].text;
-    toast('✓ Precios de "'+nombreProveedor+'" cargados', true);
+    if(aplicados>0) toast('✓ '+(esPostes?'Postes':'Materiales')+' de "'+nombreProveedor+'" cargados', true);
+    else toast('"'+nombreProveedor+'" no tiene precios de '+(esPostes?'postes':'ese grupo'), false);
   }catch(e){
     console.error(e);
     toast('Error al cargar proveedor: '+e.message, false);
