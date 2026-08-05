@@ -2400,13 +2400,18 @@ async function cargarProveedorGrupo(grupo, sel){
             datos[cat.costId]=v;
           }
           if(m.tipo==='alambre' && m.metrosPorRollo) datos['m-pw']=m.metrosPorRollo;
+          if(cat && cat.poste){ // dimensiones del poste que vende el proveedor
+            if(m.dimW!=null && m.dimW!=='') datos[cat.dimW]=m.dimW;
+            if(m.dimH!=null && m.dimH!=='') datos[cat.dimH]=m.dimH;
+          }
         });
       }
     }
-    // Campos de ESTE grupo: postes = poste-*; resto = todo lo demás (+ m-pw del alambre)
+    // Campos de ESTE grupo: postes = poste-* (+ sus medidas); resto = los demás (+ m-pw del alambre)
     const esPostes = grupo==='postes';
     const ids=new Set(CATALOGO_MATERIALES.filter(c=> esPostes === c.tipo.startsWith('poste-')).map(c=>c.costId));
     if(!esPostes) ids.add('m-pw');
+    if(esPostes) CATALOGO_MATERIALES.filter(c=>c.poste).forEach(c=>{ ids.add(c.dimW); ids.add(c.dimH); });
     let aplicados=0;
     ids.forEach(id=>{
       const el=document.getElementById(id);
@@ -3613,9 +3618,9 @@ let proveedoresGlobal = [];
 
 // Catálogo de materiales (fuente única). costId = campo de "Costos de materiales" del cotizador.
 const CATALOGO_MATERIALES=[
-  {tipo:'poste-linea-concreto', label:'Poste de línea — concreto', costId:'p-lc'},
-  {tipo:'poste-linea-madera', label:'Poste de línea — madera', costId:'p-lw'},
-  {tipo:'poste-esquinero-concreto', label:'Poste esquinero — concreto', costId:'p-e1'},
+  {tipo:'poste-linea-concreto', label:'Poste de línea — concreto', costId:'p-lc', poste:true, dimW:'dim-lc-w', dimH:'dim-lc-h', dwPh:'ancho cm', dhPh:'alto m'},
+  {tipo:'poste-linea-madera', label:'Poste de línea — madera', costId:'p-lw', poste:true, dimW:'dim-lw-d', dimH:'dim-lw-h', dwPh:'Ø cm', dhPh:'alto m'},
+  {tipo:'poste-esquinero-concreto', label:'Poste esquinero — concreto', costId:'p-e1', poste:true, dimW:'dim-e-w', dimH:'dim-e-h', dwPh:'ancho cm', dhPh:'alto m'},
   {tipo:'alambre', label:'Alambre de púa', costId:'p-pw', alambre:true},
   {tipo:'cemento', label:'Cemento', costId:'p-ce'},
   {tipo:'arena', label:'Arena', costId:'p-ar'},
@@ -3686,6 +3691,7 @@ function renderMaterialesProveedorForm(){
       <input type="number" step="0.01" id="pmat-${m.tipo}-metros" placeholder="m/rollo" style="width:88px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">
       <input type="number" step="0.01" id="pmat-${m.tipo}-kg" placeholder="kg/rollo" style="width:88px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">`;
     else if(m.caja) extra = `<input type="number" step="0.01" id="pmat-${m.tipo}-kgcaja" placeholder="kg por caja" style="width:110px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">`;
+    else if(m.poste) extra = `<input type="number" step="0.01" id="pmat-${m.tipo}-dw" placeholder="${m.dwPh}" title="Medida del poste que vende este proveedor" style="width:82px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px"><span style="color:var(--muted);font-size:12px">×</span><input type="number" step="0.01" id="pmat-${m.tipo}-dh" placeholder="${m.dhPh}" style="width:82px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">`;
     return `<div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.4rem;flex-wrap:wrap">
       <label style="flex:1;min-width:180px;font-size:13px;color:var(--text)">${m.label}</label>
       <div class="ip" style="width:120px"><span>$</span><input type="number" step="0.01" id="pmat-${m.tipo}" placeholder="${m.caja?'$/caja':'—'}" style="width:120px"></div>
@@ -3792,6 +3798,10 @@ async function agregarProveedor(){
       } else if(m.caja){
         const kgc=parseFloat((document.getElementById('pmat-'+m.tipo+'-kgcaja')||{}).value);
         item.kgPorCaja=isNaN(kgc)?null:kgc;
+      } else if(m.poste){
+        const dw=parseFloat((document.getElementById('pmat-'+m.tipo+'-dw')||{}).value);
+        const dh=parseFloat((document.getElementById('pmat-'+m.tipo+'-dh')||{}).value);
+        item.dimW=isNaN(dw)?null:dw; item.dimH=isNaN(dh)?null:dh;
       }
       materiales.push(item);
     }
@@ -3834,6 +3844,7 @@ function abrirEditarProveedor(id){
       <input type="number" step="0.01" id="emat-${m.tipo}-metros" placeholder="m/rollo" style="width:88px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">
       <input type="number" step="0.01" id="emat-${m.tipo}-kg" placeholder="kg/rollo" style="width:88px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">`;
     else if(m.caja) extra=`<input type="number" step="0.01" id="emat-${m.tipo}-kgcaja" placeholder="kg por caja" style="width:110px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">`;
+    else if(m.poste) extra=`<input type="number" step="0.01" id="emat-${m.tipo}-dw" placeholder="${m.dwPh}" title="Medida del poste que vende este proveedor" style="width:82px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px"><span style="color:var(--muted);font-size:12px">×</span><input type="number" step="0.01" id="emat-${m.tipo}-dh" placeholder="${m.dhPh}" style="width:82px;padding:.4rem;border:1px solid var(--border);border-radius:4px;font-size:12px">`;
     return `<div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.4rem;flex-wrap:wrap">
       <label style="flex:1;min-width:180px;font-size:13px;color:var(--text)">${m.label}</label>
       <div class="ip" style="width:120px"><span>$</span><input type="number" step="0.01" id="emat-${m.tipo}" placeholder="${m.caja?'$/caja':'—'}" style="width:120px"></div>
@@ -3873,6 +3884,9 @@ function abrirEditarProveedor(id){
       const ekg=document.getElementById('emat-alambre-kg'); if(ekg&&mat.kgPorRollo!=null) ekg.value=mat.kgPorRollo;
     } else if(mat.tipo==='grampas'){
       const ekc=document.getElementById('emat-grampas-kgcaja'); if(ekc&&mat.kgPorCaja!=null) ekc.value=mat.kgPorCaja;
+    } else if(String(mat.tipo).startsWith('poste-')){
+      const edw=document.getElementById('emat-'+mat.tipo+'-dw'); if(edw&&mat.dimW!=null) edw.value=mat.dimW;
+      const edh=document.getElementById('emat-'+mat.tipo+'-dh'); if(edh&&mat.dimH!=null) edh.value=mat.dimH;
     }
   });
 }
@@ -3898,6 +3912,10 @@ async function guardarEdicionProveedor(id){
       } else if(m.caja){
         const kgc=parseFloat((document.getElementById('emat-'+m.tipo+'-kgcaja')||{}).value);
         item.kgPorCaja=isNaN(kgc)?null:kgc;
+      } else if(m.poste){
+        const dw=parseFloat((document.getElementById('emat-'+m.tipo+'-dw')||{}).value);
+        const dh=parseFloat((document.getElementById('emat-'+m.tipo+'-dh')||{}).value);
+        item.dimW=isNaN(dw)?null:dw; item.dimH=isNaN(dh)?null:dh;
       }
       materiales.push(item);
     }
