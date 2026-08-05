@@ -3155,7 +3155,7 @@ async function abrirFinanzas(){
 
   try{
     const resp=await apiFetch('/api/cotizaciones');
-    const items=(resp.items||[]).map(it=>({key:it.id, cliente:it.cliente, folio:it.folio, total:it.total, estatus:it.estatus||'pendiente'}));
+    const items=(resp.items||[]).map(it=>({key:it.id, cliente:it.cliente, folio:it.folio, total:it.total, estatus:it.estatus||'pendiente', tieneCompVendedor:it.tieneCompVendedor, tieneCompCliente:it.tieneCompCliente}));
 
     // Obtener datos completos (incluye información de pago)
     const datosCompletos=[];
@@ -3268,7 +3268,7 @@ function filtrarFinanzas(){
       cliente:c.cliente,
       monto:c.data.pago.montoRecibido||parseFloat(c.total)||0,
       fechaPago:c.data.pago.fechaPago||'—',
-      conVoucher:!!c.data.pago.comprobante,
+      conVoucher:!!(c.data.pago&&c.data.pago.comprobante) || !!(c.data.aceptacionCliente&&c.data.aceptacionCliente.comprobante) || !!c.tieneCompVendedor || !!c.tieneCompCliente,
       fecha:c.data.pago.fechaPago?new Date(c.data.pago.fechaPago):null
     }))
     .filter(ing=>{
