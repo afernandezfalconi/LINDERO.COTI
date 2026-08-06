@@ -831,6 +831,7 @@ function irAlHome(){
             <option value="1">1 línea</option>
             <option value="2">2 líneas</option>
             <option value="3" selected>3 líneas</option>
+            <option value="4">4 líneas</option>
           </select>
         </div>
         <div class="crow">
@@ -874,11 +875,17 @@ function irAlHome(){
             <span>Subcontratar la instalación a un tercero <span style="color:var(--muted);font-size:12px">(precio fijo; reemplaza la mano de obra)</span></span>
           </label>
           <div id="subcontrato-wrap" style="display:none;margin-top:.6rem">
+            <div class="f" style="margin-bottom:.5rem">
+              <label>Subcontratista (proveedor de servicio)</label>
+              <select id="sel-subcontratista" onchange="cargarSubcontratista(this)">
+                <option value="">— manual / selecciona —</option>
+              </select>
+            </div>
             <div class="f" style="margin-bottom:0">
               <label>Precio del subcontratista (solo instalación)</label>
               <div class="ip" style="max-width:220px"><span>$</span><input type="number" id="subcontrato-precio" min="0" step="0.01" placeholder="0.00" oninput="calc()"></div>
             </div>
-            <div class="ni" style="margin-top:.5rem">Reemplaza la mano de obra calculada. Los materiales se cotizan aparte.</div>
+            <div class="ni" style="margin-top:.5rem">Elige un subcontratista guardado (se llena su precio) o escríbelo manual. Reemplaza la mano de obra; los materiales se cotizan aparte. Los subcontratistas se crean en <b>Proveedores</b> poniéndoles precio a "Instalación / mano de obra".</div>
           </div>
         </div>
       </div>
@@ -1685,6 +1692,18 @@ function toggleSubcontrato(){
   document.getElementById('subcontrato-wrap').style.display=on?'block':'none';
   calc();
 }
+// Al elegir un subcontratista guardado, se llena su precio de "Instalación".
+function cargarSubcontratista(sel){
+  const opt=sel.options[sel.selectedIndex];
+  if(opt && opt.dataset.providerData){
+    try{
+      const p=JSON.parse(opt.dataset.providerData);
+      const m=(p.materiales||[]).find(x=>x.tipo==='instalacion');
+      if(m && m.precio) document.getElementById('subcontrato-precio').value=m.precio;
+    }catch(e){}
+  }
+  calc();
+}
 function getP(){let t=0; document.getElementById('lgrid').querySelectorAll('input').forEach(i=>t+=parseFloat(i.value)||0); return t;}
 function getSp(){const v=document.getElementById('sep').value; return v==='custom'?(parseFloat(document.getElementById('sep-v').value)||2):parseFloat(v);}
 function $m(v){if(v===null||v===undefined||isNaN(v))return'—'; return'$'+v.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -1978,6 +1997,7 @@ function nuevaCotizacion(){
   const mct=document.getElementById('margen-calculado-txt'); if(mct) mct.textContent='—';
   const csp=document.getElementById('subcontrato-precio'); if(csp) csp.value='';
   const csb=document.getElementById('chk-subcontrato'); if(csb){ csb.checked=false; const w=document.getElementById('subcontrato-wrap'); if(w) w.style.display='none'; }
+  const cssel=document.getElementById('sel-subcontratista'); if(cssel) cssel.value='';
   try{ borrar(); }catch(e){}
   nL=4;
   document.getElementById('ln').textContent=4;
@@ -2041,6 +2061,8 @@ function recopilarEstado(){
   const montoNegociado=document.getElementById('monto-negociado')?.value;
   if(montoNegociado) estado.montoNegociado=parseFloat(montoNegociado);
   estado.subcontrato=!!(document.getElementById('chk-subcontrato')&&document.getElementById('chk-subcontrato').checked);
+  const _selSub=document.getElementById('sel-subcontratista');
+  if(_selSub){ estado.subcontratistaId=_selSub.value||''; estado.subcontratistaNombre=_selSub.value?_selSub.options[_selSub.selectedIndex].text:''; }
 
   return estado;
 }
@@ -2230,6 +2252,7 @@ function resetCamposCotizacion(){
   const mn=document.getElementById('monto-negociado'); if(mn) mn.value='';
   const mct=document.getElementById('margen-calculado-txt'); if(mct) mct.textContent='—';
   const cs=document.getElementById('chk-subcontrato'); if(cs){ cs.checked=false; const w=document.getElementById('subcontrato-wrap'); if(w) w.style.display='none'; }
+  const ss=document.getElementById('sel-subcontratista'); if(ss) ss.value='';
   // Medidas del lote (buildLados([]) conserva las previas si no se limpian antes)
   const lg=document.getElementById('lgrid'); if(lg) lg.querySelectorAll('input').forEach(i=>i.value='');
   // Trazado / plano
@@ -2307,6 +2330,8 @@ async function cargarCotizacion(key){
     // Subcontrato de instalación (la casilla; el precio ya vino en CAMPOS_SIMPLES)
     const chkSub=document.getElementById('chk-subcontrato');
     if(chkSub){ chkSub.checked=!!data.subcontrato; document.getElementById('subcontrato-wrap').style.display=chkSub.checked?'block':'none'; }
+    const selSub=document.getElementById('sel-subcontratista');
+    if(selSub && data.subcontratistaId){ selSub.value=data.subcontratistaId; }
 
     onDimChange(); // recalcula etiquetas + calc()
 
@@ -2381,9 +2406,11 @@ function getProveedoresLocal(){
 async function refrescarSelectorProveedores(){
   const selP=document.getElementById('sel-prov-postes');
   const selR=document.getElementById('sel-prov-resto');
+  const selS=document.getElementById('sel-subcontratista'); // proveedores de servicio (instalación)
   if(!selP || !selR) return;
   const base='<option value="">— selecciona —</option>';
   selP.innerHTML=base; selR.innerHTML=base;
+  if(selS) selS.innerHTML='<option value="">— manual / selecciona —</option>';
   const addOpt=(sel,value,text,provData)=>{
     const opt=document.createElement('option');
     opt.value=value; opt.textContent=text;
@@ -2391,7 +2418,7 @@ async function refrescarSelectorProveedores(){
     sel.appendChild(opt);
   };
 
-  // API (se agregan a AMBOS selectores)
+  // API (se agregan a AMBOS selectores; los que ofrecen "instalación" también al de subcontratista)
   const token=obtenerToken();
   if(token){
     try{
@@ -2399,15 +2426,17 @@ async function refrescarSelectorProveedores(){
       const resp=await fetch(API_BASE+'/api/providers', {headers:{'X-Auth-Token':token,'X-User-Email':user.email}});
       if(resp.ok){
         (( await resp.json()).items||[]).forEach(p=>{
-          const txt=`${p.nombre} — ${(p.materiales||[]).length} material(es)`;
           const data=JSON.stringify(p);
-          addOpt(selP,p.id,txt,data); addOpt(selR,p.id,txt,data);
+          addOpt(selP,p.id,`${p.nombre} — ${(p.materiales||[]).length} material(es)`,data);
+          addOpt(selR,p.id,`${p.nombre} — ${(p.materiales||[]).length} material(es)`,data);
+          const inst=(p.materiales||[]).find(m=>m.tipo==='instalacion');
+          if(selS && inst) addOpt(selS,p.id,`${p.nombre} — $${inst.precio} instalación`,data);
         });
       }
     }catch(e){ console.warn('No se pudo cargar proveedores del API:', e); }
   }
 
-  // Fallback local (a ambos)
+  // Fallback local (solo a postes/resto; los servicios se manejan por API)
   const provsLocal=getProveedoresLocal();
   Object.keys(provsLocal).sort().forEach(nombre=>{
     addOpt(selP,'local:'+nombre,nombre+' (local)'); addOpt(selR,'local:'+nombre,nombre+' (local)');
@@ -2463,7 +2492,7 @@ async function cargarProveedorGrupo(grupo, sel){
     }
     // Campos de ESTE grupo: postes = poste-* (+ sus medidas); resto = los demás (+ m-pw del alambre)
     const esPostes = grupo==='postes';
-    const ids=new Set(CATALOGO_MATERIALES.filter(c=> esPostes === c.tipo.startsWith('poste-')).map(c=>c.costId));
+    const ids=new Set(CATALOGO_MATERIALES.filter(c=> !c.servicio && esPostes === c.tipo.startsWith('poste-')).map(c=>c.costId));
     if(!esPostes) ids.add('m-pw');
     if(esPostes) CATALOGO_MATERIALES.filter(c=>c.poste).forEach(c=>{ ids.add(c.dimW); ids.add(c.dimH); });
     let aplicados=0;
@@ -3700,6 +3729,7 @@ const CATALOGO_MATERIALES=[
   {tipo:'varilla', label:'Varilla 3/8"', costId:'p-va'},
   {tipo:'alambron', label:'Alambrón 1/4"', costId:'p-al'},
   {tipo:'grampas', label:'Grampas / grapas (por caja)', costId:'p-gp', caja:true},
+  {tipo:'instalacion', label:'Instalación / mano de obra (servicio)', costId:'subcontrato-precio', servicio:true},
 ];
 function labelMaterial(tipo){ const m=CATALOGO_MATERIALES.find(c=>c.tipo===tipo); return m?m.label:tipo; }
 
