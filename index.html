@@ -1659,6 +1659,27 @@ function toggleFundInfo(){
 }
 
 // ── CÁLCULO ───────────────────────────────────────────────────────
+// Postes de LÍNEA (intermedios entre esquinas), conteo exacto por lado: cada lado
+// necesita ceil(largo/sp) tramos -> ceil(largo/sp)-1 postes intermedios. Los esquineros
+// (uno por vértice) se cuentan aparte (pe=nL), así no se cuentan dos veces. El vano se
+// descuenta del lado del portón, que además lleva el poste del extremo del vano.
+function contarPostesLinea(sp, pa){
+  if(!(sp>0)) return 0;
+  const arr=[...document.getElementById('lgrid').querySelectorAll('input')].map(i=>parseFloat(i.value)||0);
+  if(arr.length===0) return 0;
+  let idxPorton=-1;
+  if(conPorton){
+    const sel=parseInt(document.getElementById('po-l').value);
+    idxPorton=(Number.isInteger(sel)&&sel>=0&&sel<arr.length)?sel:arr.indexOf(Math.max(...arr)); // si no se eligió lado, se usa el más largo
+  }
+  let pl=0;
+  for(let i=0;i<arr.length;i++){
+    let L=arr[i];
+    if(i===idxPorton){ L=Math.max(0,L-pa); pl+=Math.max(0,Math.ceil(L/sp)); } // + poste del extremo del vano
+    else { pl+=Math.max(0,Math.ceil(L/sp)-1); }
+  }
+  return pl;
+}
 function toggleSubcontrato(){
   const on=document.getElementById('chk-subcontrato').checked;
   document.getElementById('subcontrato-wrap').style.display=on?'block':'none';
@@ -1725,7 +1746,7 @@ function calc(){
   const mp=document.getElementById('modo-p').value;
   const pa=conPorton?(parseFloat(document.getElementById('po-a').value)||5):0;
   const pef=Math.max(0,per-pa);
-  const pl=pef>0?Math.ceil(pef/sp):0;
+  const pl=pef>0?contarPostesLinea(sp,pa):0; // conteo exacto por lado (no sobre-cuenta esquinas)
   const pe=nL; // esquinero por cada vértice
   const hebras=parseInt(document.getElementById('hebras').value)||3;
   const mAl=pef*hebras;
@@ -2873,7 +2894,7 @@ function calcularEscenario(matX, modoX){
   const sp=getSp();
   const pa=conPorton?(parseFloat(document.getElementById('po-a').value)||5):0;
   const pef=Math.max(0,per-pa);
-  const pl=pef>0?Math.ceil(pef/sp):0;
+  const pl=pef>0?contarPostesLinea(sp,pa):0; // conteo exacto por lado
   const pe=nL||4;
   const hebras=parseInt(document.getElementById('hebras').value)||3;
   const mAl=pef*hebras;
