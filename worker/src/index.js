@@ -782,6 +782,10 @@ export default {
     td { padding: 0.75rem; border-bottom: 1px solid #ddd; }
     .total-section { background: #13241f; color: white; padding: 2rem; border-radius: 8px; text-align: center; margin-top: 2rem; }
     .total-valor { font-size: 2.5rem; font-weight: bold; color: #89D7B7; }
+    .terminos { margin-top: 2rem; padding: 1.25rem 1.5rem; border: 1px solid #e0d3b0; border-left: 4px solid #e0a800; border-radius: 8px; background: #fffdf5; }
+    .terminos h3 { margin: 0 0 .6rem; color: #13241f; font-size: 1rem; }
+    .terminos ul { margin: 0; padding-left: 1.1rem; }
+    .terminos li { font-size: .88rem; color: #555; line-height: 1.6; margin-bottom: .35rem; }
     .aceptacion { margin-top: 2rem; padding: 1.5rem; border: 1px solid #cfe0d8; border-radius: 8px; background: #f7fbf9; }
     .aceptacion h3 { margin-bottom: .5rem; color: #13241f; }
     .aceptacion.aceptada { background: #eef9f4; border-color: #89D7B7; }
@@ -810,6 +814,15 @@ export default {
     <div class="total-section">
       <div>Precio Total</div>
       <div class="total-valor">${rec.resumenTotal || '$—'}</div>
+    </div>
+    <div class="terminos">
+      <h3>Términos y condiciones</h3>
+      <ul>
+        <li><strong>Vigencia:</strong> esta cotización tiene una vigencia de <strong>7 días hábiles</strong>. Concluido ese plazo, se deberá solicitar una actualización.</li>
+        <li><strong>Pagos:</strong> no se realizan reembolsos sobre los pagos ya efectuados.</li>
+        <li><strong>Garantía:</strong> 30 días de garantía sobre la obra realizada, por defectos de fábrica en los postes.</li>
+        <li>No aplica garantía por mal uso.</li>
+      </ul>
     </div>
     ${aceptacionHtml}
   </div>
