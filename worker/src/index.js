@@ -1438,6 +1438,26 @@ export default {
         return json({ items: receipts }, 200, origin);
       }
 
+      // Reemplazar/quitar el comprobante de un pago (si se subió el equivocado o se rechazó la transferencia)
+      const mEditComp = path.match(/^\/api\/receipts\/([A-Z0-9:]+)\/payment\/(\d+)\/comprobante$/);
+      if (request.method === 'POST' && mEditComp) {
+        const numero = mEditComp[1], idx = parseInt(mEditComp[2], 10);
+        const receipt = await getReceiptByNumber(env, numero);
+        if (!receipt) return json({ error: 'Recibo no encontrado' }, 404, origin);
+        const hp = receipt.historiaPagos || [];
+        if (!hp[idx]) return json({ error: 'Pago no encontrado' }, 404, origin);
+        const body = await request.json();
+        const comp = typeof body.comprobanteArchivo === 'string' ? body.comprobanteArchivo : '';
+        if (comp && !/^data:(image\/|application\/pdf)/.test(comp)) return json({ error: 'Formato inválido (imagen o PDF)' }, 400, origin);
+        if (comp.length > 6_000_000) return json({ error: 'Archivo muy grande (máx ~4 MB)' }, 413, origin);
+        hp[idx].comprobanteArchivo = comp;
+        if (typeof body.comprobante === 'string') hp[idx].comprobante = body.comprobante.slice(0, 200);
+        await env.COTIZACIONES.put(RECEIPTS_PREFIX + numero, JSON.stringify(receipt));
+        if (receipt.folio) await refreshFlags(env, receipt.folio);
+        await createAuditLog(env, user, 'EDIT_COMPROBANTE', numero, { pago: idx });
+        return json({ ok: true }, 200, origin);
+      }
+
       if (request.method === 'POST' && path.match(/^\/api\/receipts\/[A-Z0-9:]+\/payment$/)) {
         const numero = path.split('/')[3];
         const body = await request.json();

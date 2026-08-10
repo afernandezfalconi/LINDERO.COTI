@@ -4213,6 +4213,26 @@ function verArchivo(du){ if(!du) return; try{ const b=_dataUrlToBlob(du); const 
 function descargarArchivo(du,nombre){ if(!du) return; try{ const b=_dataUrlToBlob(du); const ext={'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[b.mime]||''; const a=document.createElement('a'); a.href=URL.createObjectURL(b.blob); a.download=(nombre||'comprobante')+(ext?('.'+ext):''); document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);}catch(e){} }
 function verComprobantePago(i){ const p=recibosActuales[0]&&recibosActuales[0].historiaPagos&&recibosActuales[0].historiaPagos[i]; if(p&&p.comprobanteArchivo) verArchivo(p.comprobanteArchivo); }
 function descargarComprobantePago(i){ const p=recibosActuales[0]&&recibosActuales[0].historiaPagos&&recibosActuales[0].historiaPagos[i]; if(p&&p.comprobanteArchivo) descargarArchivo(p.comprobanteArchivo,'comprobante-pago-'+(i+1)); }
+// Reemplazar/subir el comprobante de un pago (si se subió el equivocado o se rechazó la transferencia)
+function cambiarComprobantePago(i){
+  const rec=recibosActuales[0]; if(!rec) return;
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*,application/pdf';
+  inp.onchange=()=>{
+    const f=inp.files&&inp.files[0]; if(!f) return;
+    if(f.size>4*1024*1024){ alert('El archivo supera 4 MB'); return; }
+    if(!(/^image\//.test(f.type)||f.type==='application/pdf')){ alert('Solo imagen o PDF'); return; }
+    const rd=new FileReader();
+    rd.onload=async ev=>{
+      try{
+        await apiFetch('/api/receipts/'+rec.numero+'/payment/'+i+'/comprobante', {method:'POST', body:JSON.stringify({comprobanteArchivo:ev.target.result})});
+        toast('✓ Comprobante actualizado', true);
+        await cargarRecibos();
+      }catch(e){ toast('No se pudo actualizar el comprobante: '+((e&&e.message)||e), false); }
+    };
+    rd.readAsDataURL(f);
+  };
+  inp.click();
+}
 
 function actualizarTotalIVA(){
   const incluir=document.getElementById('incluirIVA').checked;
@@ -4476,10 +4496,11 @@ async function cargarRecibos(){
       tablaDiv.innerHTML='';
       recibo.historiaPagos.forEach((pago,i)=>{
         const fecha=new Date(pago.fecha).toLocaleDateString('es-MX');
-        const acciones = pago.comprobanteArchivo ? `<div style="display:flex;gap:.4rem;margin-top:.35rem">
-            <button class="tb" style="padding:2px 8px;font-size:10px" onclick="verComprobantePago(${i})"><i class="ti ti-eye" aria-hidden="true"></i> Ver</button>
-            <button class="tb" style="padding:2px 8px;font-size:10px" onclick="descargarComprobantePago(${i})"><i class="ti ti-download" aria-hidden="true"></i> Descargar</button>
-          </div>` : '';
+        const acciones = `<div style="display:flex;gap:.4rem;margin-top:.35rem;flex-wrap:wrap">
+            ${pago.comprobanteArchivo ? `<button class="tb" style="padding:2px 8px;font-size:10px" onclick="verComprobantePago(${i})"><i class="ti ti-eye" aria-hidden="true"></i> Ver</button>
+            <button class="tb" style="padding:2px 8px;font-size:10px" onclick="descargarComprobantePago(${i})"><i class="ti ti-download" aria-hidden="true"></i> Descargar</button>` : '<span style="font-size:10px;color:var(--muted);align-self:center">Sin comprobante</span>'}
+            <button class="tb" style="padding:2px 8px;font-size:10px" onclick="cambiarComprobantePago(${i})"><i class="ti ti-refresh" aria-hidden="true"></i> ${pago.comprobanteArchivo?'Cambiar':'Subir'}</button>
+          </div>`;
         const fila=`<div style="background:var(--bg3);padding:0.5rem;border-radius:4px">
           <div style="display:flex;justify-content:space-between">
             <div><strong>${fecha}</strong> ${pago.metodo} ${pago.comprobante?' ('+pago.comprobante+')':''}</div>
