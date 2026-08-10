@@ -2363,6 +2363,8 @@ async function cargarCotizacion(key){
 
     // Modo edición: a partir de aquí "Guardar" actualiza ESTE registro (mismo folio)
     cotizacionActualKey=key;
+    document.getElementById('cli-f').value = data.resumenFolio || key; // asegurar folio
+    await cargarRecibos(); // cargar pagos + vouchers de la cotización abierta (antes no se cargaban)
     actualizarBotonGuardar();
 
     cerrarListaCotizaciones();

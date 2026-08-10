@@ -1391,6 +1391,20 @@ export default {
           return json({ error: 'Campos requeridos: folio, cliente, detalles, totales' }, 400, origin);
         }
 
+        // Evitar recibos DUPLICADOS: si el folio ya tiene recibo, se agrega el pago a ese.
+        const existentesFolio = await getReceiptsByFolio(env, body.folio);
+        if (existentesFolio.length > 0) {
+          const actualizado = await addPayment(env, existentesFolio[0].numero, {
+            monto: body.monto || 0,
+            metodo: body.metodo || 'efectivo',
+            comprobante: body.comprobante || '',
+            comprobanteArchivo: body.comprobanteArchivo || '',
+            descripcion: body.descripcion || ''
+          });
+          await createAuditLog(env, user, 'ADD_PAYMENT', existentesFolio[0].numero, { folio: body.folio });
+          return json(actualizado, 200, origin);
+        }
+
         const receipt = await createReceipt(env, {
           folio: body.folio,
           cliente: body.cliente,
