@@ -412,7 +412,7 @@ function irAlHome(){
           <div id="emp-tel-ro" style="font-size:13px;color:var(--muted);font-family:var(--fm);display:none">📞 <span></span></div>
           <div id="emp-email-ro" style="font-size:13px;color:var(--muted);font-family:var(--fm);display:none;margin-top:2px">✉ <span></span></div>
           <div id="emp-dir-ro" style="font-size:13px;color:var(--muted);font-family:var(--fm);display:none;margin-top:2px">📍 <span></span></div>
-          <div id="emp-vigencia-ro" style="font-size:13px;color:var(--muted);font-family:var(--fm);margin-top:4px">⏱ Vigencia: <span>15 días naturales</span></div>
+          <div id="emp-vigencia-ro" style="font-size:13px;color:var(--muted);font-family:var(--fm);margin-top:4px">⏱ Vigencia: <span>7 días hábiles</span></div>
           <div id="emp-vacio-msg" style="font-size:12px;color:var(--muted);font-family:var(--fm);display:none">Sin datos de contacto aún — haz clic en "Editar" para añadirlos.</div>
         </div>
         <button class="tb" onclick="habilitarEdicionEmpresa()" style="width:100%;justify-content:center;padding:8px">✏ Editar datos</button>
@@ -437,7 +437,7 @@ function irAlHome(){
           <div class="f"><label>Email</label><input type="text" id="emp-email" placeholder="contacto@lindero.mx"></div>
         </div>
         <div class="f"><label>Dirección / ubicación</label><input type="text" id="emp-dir" placeholder="Ciudad, estado"></div>
-        <div class="f"><label>Vigencia de la cotización</label><input type="text" id="emp-vigencia" value="15 días naturales"></div>
+        <div class="f"><label>Vigencia de la cotización</label><input type="text" id="emp-vigencia" value="7 días hábiles"></div>
         <div style="display:flex;gap:8px;margin-top:1rem">
           <button class="tb ok" style="flex:1;padding:9px;justify-content:center" onclick="guardarYCerrarEmpresa()">💾 Guardar y cerrar</button>
           <button class="tb" style="padding:9px" onclick="cancelarEdicionEmpresa()">Cancelar</button>
@@ -1176,9 +1176,12 @@ function irAlHome(){
 
   <div class="ph-notas">
     <p>• El portón metálico se cotiza por separado con el herrero. Esta cotización solo reserva el vano.</p>
-    <p>• Esta cotización tiene una vigencia de <span id="ph-vigencia">15 días naturales</span> a partir de la fecha de emisión.</p>
+    <p>• Esta cotización tiene una vigencia de <span id="ph-vigencia">7 días hábiles</span> a partir de la fecha de emisión.</p>
     <p>• <strong>IMPORTANTE:</strong> Los costos de materiales de construcción están sujetos a fluctuaciones del mercado. Cambios significativos en los precios pueden afectar esta cotización independientemente de su vigencia. En tal caso, se notificará al cliente antes de iniciar el proyecto.</p>
     <p>• Los precios están sujetos a verificación física del terreno y disponibilidad de materiales.</p>
+    <p>• Concluida la vigencia, se deberá solicitar la actualización de la cotización.</p>
+    <p>• <strong>No se realizan reembolsos</strong> sobre los pagos ya efectuados.</p>
+    <p>• <strong>Garantía de 30 días</strong> sobre la obra realizada, por defectos de fábrica en los postes. <strong>No aplica garantía por mal uso.</strong></p>
   </div>
 
   <div class="ph-firma">
@@ -2582,7 +2585,7 @@ function mostrarVistaLectura(cfg){
   document.getElementById('emp-slogan-ro').textContent=slogan;
   // Campos de contacto
   const tel=cfg['emp-tel'], email=cfg['emp-email'], dir=cfg['emp-dir'];
-  const vigencia=cfg['emp-vigencia']||'15 días naturales';
+  const vigencia=cfg['emp-vigencia']||'7 días hábiles';
   setROField('emp-tel-ro', tel);
   setROField('emp-email-ro', email);
   setROField('emp-dir-ro', dir);
@@ -2680,7 +2683,7 @@ async function imprimirCotizacion(tipo){
   document.getElementById('ph-emp-nombre').textContent = 'Lindero';
   const detalle = [cfg['emp-tel'],cfg['emp-email'],cfg['emp-dir']].filter(Boolean).join(' · ');
   document.getElementById('ph-emp-detalle').textContent = detalle || 'LÍMITES. PROTECCIÓN. PRECISIÓN.';
-  document.getElementById('ph-vigencia').textContent=cfg['emp-vigencia']||'15 días naturales';
+  document.getElementById('ph-vigencia').textContent=cfg['emp-vigencia']||'7 días hábiles';
 
   // Folio y fecha
   document.getElementById('ph-folio').textContent='Folio: '+(document.getElementById('cli-f').value||'—');
