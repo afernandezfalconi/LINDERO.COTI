@@ -881,11 +881,18 @@ function irAlHome(){
                 <option value="">— manual / selecciona —</option>
               </select>
             </div>
+            <div class="f" style="margin-bottom:.5rem">
+              <label>¿Qué cubre el subcontrato?</label>
+              <select id="sub-modo" onchange="calc()">
+                <option value="mo">Solo mano de obra (materiales aparte)</option>
+                <option value="todo">Instalación completa (materiales + mano de obra)</option>
+              </select>
+            </div>
             <div class="f" style="margin-bottom:0">
-              <label>Precio del subcontratista (solo instalación)</label>
+              <label>Precio del subcontratista</label>
               <div class="ip" style="max-width:220px"><span>$</span><input type="number" id="subcontrato-precio" min="0" step="0.01" placeholder="0.00" oninput="calc()"></div>
             </div>
-            <div class="ni" style="margin-top:.5rem">Elige un subcontratista guardado (se llena su precio) o escríbelo manual. Reemplaza la mano de obra; los materiales se cotizan aparte. Los subcontratistas se crean en <b>Proveedores</b> poniéndoles precio a "Instalación / mano de obra".</div>
+            <div class="ni" style="margin-top:.5rem"><b>Solo mano de obra:</b> el precio reemplaza la M.O. y los materiales se cotizan aparte. <b>Instalación completa:</b> el precio es TODO (materiales + M.O.) y se ignoran los costos de materiales calculados. Los subcontratistas se crean en <b>Proveedores</b> poniéndoles precio a "Instalación / mano de obra".</div>
           </div>
         </div>
       </div>
@@ -1841,7 +1848,11 @@ function calc(){
   cO=(pG!==null||cFundTotal!==null)?((cGrampas)+(cFundTotal||0)):null;
   document.getElementById('p-fu-disp').textContent = $m(cFundTotal);
 
-  const parts=[cL,cE,cA,cMO,cO];
+  // Modo del subcontrato: 'mo' = solo mano de obra (materiales aparte);
+  // 'todo' = instalación completa (materiales + M.O.): el costo base es SOLO el precio X.
+  const modoSub=document.getElementById('sub-modo')?document.getElementById('sub-modo').value:'mo';
+  const subTodo=subOn && modoSub==='todo' && !isNaN(subPrecio) && subPrecio>0;
+  const parts = subTodo ? [subPrecio] : [cL,cE,cA,cMO,cO];
   const tot=parts.some(p=>p!==null)?parts.reduce((s,p)=>s+(p||0),0):null;
   window.costoBase=tot; // guardar para calcularMargenDesdeTotal()
   const pend=parts.filter(p=>p===null).length;
@@ -1899,6 +1910,14 @@ function calc(){
   // Etiqueta dinámica: solo dice "Grampas" cuando de verdad aplican (madera fabricada en obra)
   document.getElementById('r-co-lbl').textContent = cGrampas>0 ? 'Grampas + fundición' : 'Fundición de postes';
   document.getElementById('r-costo-base').textContent=tot!==null?$m(tot):'$—';
+  if(subTodo){
+    // Instalación completa subcontratada: los materiales van "incluidos" y el único costo es X.
+    ['r-cl','r-ce','r-ca','r-co'].forEach(id=>{const e=document.getElementById(id); if(e) e.textContent='incluido';});
+    document.getElementById('r-cm').textContent=$m(subPrecio);
+    document.getElementById('r-mo2').textContent=$m(subPrecio);
+    document.getElementById('mo-d').textContent=$m(subPrecio);
+    const ms=document.getElementById('mo-src'); if(ms) ms.textContent='Instalación completa (materiales + M.O.)';
+  }
   if(tot!==null && margenPct>0){
     document.getElementById('r-margen-row').style.display='flex';
     document.getElementById('r-margen-val').textContent='+'+margenPct.toFixed(2)+'% · '+$m(totConMargen-tot);
@@ -1998,6 +2017,7 @@ function nuevaCotizacion(){
   const csp=document.getElementById('subcontrato-precio'); if(csp) csp.value='';
   const csb=document.getElementById('chk-subcontrato'); if(csb){ csb.checked=false; const w=document.getElementById('subcontrato-wrap'); if(w) w.style.display='none'; }
   const cssel=document.getElementById('sel-subcontratista'); if(cssel) cssel.value='';
+  const csmo=document.getElementById('sub-modo'); if(csmo) csmo.value='mo';
   try{ borrar(); }catch(e){}
   nL=4;
   document.getElementById('ln').textContent=4;
@@ -2063,6 +2083,7 @@ function recopilarEstado(){
   estado.subcontrato=!!(document.getElementById('chk-subcontrato')&&document.getElementById('chk-subcontrato').checked);
   const _selSub=document.getElementById('sel-subcontratista');
   if(_selSub){ estado.subcontratistaId=_selSub.value||''; estado.subcontratistaNombre=_selSub.value?_selSub.options[_selSub.selectedIndex].text:''; }
+  const _subModo=document.getElementById('sub-modo'); if(_subModo) estado.subModo=_subModo.value;
 
   return estado;
 }
@@ -2253,6 +2274,7 @@ function resetCamposCotizacion(){
   const mct=document.getElementById('margen-calculado-txt'); if(mct) mct.textContent='—';
   const cs=document.getElementById('chk-subcontrato'); if(cs){ cs.checked=false; const w=document.getElementById('subcontrato-wrap'); if(w) w.style.display='none'; }
   const ss=document.getElementById('sel-subcontratista'); if(ss) ss.value='';
+  const smo=document.getElementById('sub-modo'); if(smo) smo.value='mo';
   // Medidas del lote (buildLados([]) conserva las previas si no se limpian antes)
   const lg=document.getElementById('lgrid'); if(lg) lg.querySelectorAll('input').forEach(i=>i.value='');
   // Trazado / plano
@@ -2332,6 +2354,7 @@ async function cargarCotizacion(key){
     if(chkSub){ chkSub.checked=!!data.subcontrato; document.getElementById('subcontrato-wrap').style.display=chkSub.checked?'block':'none'; }
     const selSub=document.getElementById('sel-subcontratista');
     if(selSub && data.subcontratistaId){ selSub.value=data.subcontratistaId; }
+    const subModoEl=document.getElementById('sub-modo'); if(subModoEl) subModoEl.value=data.subModo||'mo';
 
     onDimChange(); // recalcula etiquetas + calc()
 
