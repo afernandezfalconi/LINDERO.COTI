@@ -404,8 +404,21 @@ async function addPayment(env, receiptNumber, payment) {
 
 // ── LANDING PAGE CON TOKEN ────────────────────────────────────────────
 async function generateLandingToken(env, folio) {
+  const TTL = 30 * 24 * 3600; // 30 días
+  const revKey = TOKENS_PREFIX + 'landing-folio:' + folio; // índice inverso folio -> token
+  // Reutilizar el link existente del folio (si sigue vigente) para no multiplicar links.
+  const prev = await env.COTIZACIONES.get(revKey);
+  if (prev) {
+    const apunta = await env.COTIZACIONES.get(TOKENS_PREFIX + 'landing:' + prev);
+    if (apunta === folio) {
+      await env.COTIZACIONES.put(TOKENS_PREFIX + 'landing:' + prev, folio, { expirationTtl: TTL }); // refrescar vigencia
+      await env.COTIZACIONES.put(revKey, prev, { expirationTtl: TTL });
+      return prev;
+    }
+  }
   const token = Math.random().toString(36).substring(2, 34);
-  await env.COTIZACIONES.put(TOKENS_PREFIX + 'landing:' + token, folio, { expirationTtl: 30 * 24 * 3600 }); // 30 días
+  await env.COTIZACIONES.put(TOKENS_PREFIX + 'landing:' + token, folio, { expirationTtl: TTL });
+  await env.COTIZACIONES.put(revKey, token, { expirationTtl: TTL });
   return token;
 }
 
@@ -418,8 +431,20 @@ async function getLandingByToken(env, token) {
 
 // ── RECIBO PÚBLICO CON TOKEN ──────────────────────────────────────────
 async function generateReceiptToken(env, numero) {
+  const TTL = 90 * 24 * 3600; // 90 días
+  const revKey = TOKENS_PREFIX + 'recibo-num:' + numero; // índice inverso numero -> token
+  const prev = await env.COTIZACIONES.get(revKey);
+  if (prev) {
+    const apunta = await env.COTIZACIONES.get(TOKENS_PREFIX + 'recibo:' + prev);
+    if (apunta === numero) {
+      await env.COTIZACIONES.put(TOKENS_PREFIX + 'recibo:' + prev, numero, { expirationTtl: TTL });
+      await env.COTIZACIONES.put(revKey, prev, { expirationTtl: TTL });
+      return prev;
+    }
+  }
   const token = Math.random().toString(36).substring(2, 34);
-  await env.COTIZACIONES.put(TOKENS_PREFIX + 'recibo:' + token, numero, { expirationTtl: 90 * 24 * 3600 }); // 90 días
+  await env.COTIZACIONES.put(TOKENS_PREFIX + 'recibo:' + token, numero, { expirationTtl: TTL });
+  await env.COTIZACIONES.put(revKey, token, { expirationTtl: TTL });
   return token;
 }
 
