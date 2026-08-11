@@ -4213,6 +4213,17 @@ function verArchivo(du){ if(!du) return; try{ const b=_dataUrlToBlob(du); const 
 function descargarArchivo(du,nombre){ if(!du) return; try{ const b=_dataUrlToBlob(du); const ext={'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[b.mime]||''; const a=document.createElement('a'); a.href=URL.createObjectURL(b.blob); a.download=(nombre||'comprobante')+(ext?('.'+ext):''); document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);}catch(e){} }
 function verComprobantePago(i){ const p=recibosActuales[0]&&recibosActuales[0].historiaPagos&&recibosActuales[0].historiaPagos[i]; if(p&&p.comprobanteArchivo) verArchivo(p.comprobanteArchivo); }
 function descargarComprobantePago(i){ const p=recibosActuales[0]&&recibosActuales[0].historiaPagos&&recibosActuales[0].historiaPagos[i]; if(p&&p.comprobanteArchivo) descargarArchivo(p.comprobanteArchivo,'comprobante-pago-'+(i+1)); }
+// Eliminar un pago (error de dedo, doble clic, cancelación...)
+async function eliminarPago(i){
+  const rec=recibosActuales[0]; if(!rec) return;
+  const p=rec.historiaPagos&&rec.historiaPagos[i]; if(!p) return;
+  if(!confirm('¿Eliminar este pago de $'+(p.monto||0).toFixed(2)+' ('+(p.metodo||'')+')?\n\nSe recalcula el estado del recibo. Esta acción no se puede deshacer.')) return;
+  try{
+    await apiFetch('/api/receipts/'+rec.numero+'/payment/'+i, {method:'DELETE'});
+    toast('✓ Pago eliminado', true);
+    await cargarRecibos();
+  }catch(e){ toast('No se pudo eliminar el pago: '+((e&&e.message)||e), false); }
+}
 // Reemplazar/subir el comprobante de un pago (si se subió el equivocado o se rechazó la transferencia)
 function cambiarComprobantePago(i){
   const rec=recibosActuales[0]; if(!rec) return;
@@ -4500,6 +4511,7 @@ async function cargarRecibos(){
             ${pago.comprobanteArchivo ? `<button class="tb" style="padding:2px 8px;font-size:10px" onclick="verComprobantePago(${i})"><i class="ti ti-eye" aria-hidden="true"></i> Ver</button>
             <button class="tb" style="padding:2px 8px;font-size:10px" onclick="descargarComprobantePago(${i})"><i class="ti ti-download" aria-hidden="true"></i> Descargar</button>` : '<span style="font-size:10px;color:var(--muted);align-self:center">Sin comprobante</span>'}
             <button class="tb" style="padding:2px 8px;font-size:10px" onclick="cambiarComprobantePago(${i})"><i class="ti ti-refresh" aria-hidden="true"></i> ${pago.comprobanteArchivo?'Cambiar':'Subir'}</button>
+            <button class="tb" style="padding:2px 8px;font-size:10px;color:var(--red);border-color:var(--red)" title="Eliminar este pago" onclick="eliminarPago(${i})"><i class="ti ti-x" aria-hidden="true"></i> Eliminar</button>
           </div>`;
         const fila=`<div style="background:var(--bg3);padding:0.5rem;border-radius:4px">
           <div style="display:flex;justify-content:space-between">

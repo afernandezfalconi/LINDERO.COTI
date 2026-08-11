@@ -1463,6 +1463,38 @@ export default {
         return json({ items: receipts }, 200, origin);
       }
 
+      // Eliminar un pago del recibo (error de dedo, doble clic, cancelación...)
+      const mDelPago = path.match(/^\/api\/receipts\/([A-Z0-9:]+)\/payment\/(\d+)$/);
+      if (request.method === 'DELETE' && mDelPago) {
+        const canEditAll = await hasPermission(user, PERMISSIONS.EDIT_ALL);
+        const canEditOwn = await hasPermission(user, PERMISSIONS.EDIT_OWN);
+        if (!canEditAll && !canEditOwn) return json({ error: 'Sin permisos para editar pagos' }, 403, origin);
+        const numero = mDelPago[1], idx = parseInt(mDelPago[2], 10);
+        const receipt = await getReceiptByNumber(env, numero);
+        if (!receipt) return json({ error: 'Recibo no encontrado' }, 404, origin);
+        const hp = receipt.historiaPagos || [];
+        if (!hp[idx]) return json({ error: 'Pago no encontrado' }, 404, origin);
+        hp.splice(idx, 1);
+        const totalPagado = hp.reduce((s, p) => s + (p.monto || 0), 0);
+        const totalReq = (receipt.totales && receipt.totales.total) || 0;
+        receipt.pago.estado = totalPagado <= 0 ? 'pendiente' : (totalPagado >= totalReq ? 'completo' : 'parcial');
+        receipt.pago.monto = totalPagado;
+        await env.COTIZACIONES.put(RECEIPTS_PREFIX + numero, JSON.stringify(receipt));
+        // Sincronizar el pago de la cotización (Finanzas / resumen) y refrescar banderas
+        if (receipt.folio) {
+          const raw = await env.COTIZACIONES.get(KV_PREFIX + receipt.folio);
+          if (raw) {
+            const rec = JSON.parse(raw);
+            const ultima = hp.length ? String(hp[hp.length - 1].fecha || '').slice(0, 10) : '';
+            rec.pago = { pagado: receipt.pago.estado === 'completo', montoRecibido: totalPagado, fechaPago: ultima || ((rec.pago && rec.pago.fechaPago) || '') };
+            await putRecord(env, receipt.folio, rec);
+          }
+          await refreshFlags(env, receipt.folio);
+        }
+        await createAuditLog(env, user, 'DELETE_PAYMENT', numero, { pago: idx, quedan: hp.length });
+        return json({ ok: true, pagosRestantes: hp.length }, 200, origin);
+      }
+
       // Reemplazar/quitar el comprobante de un pago (si se subió el equivocado o se rechazó la transferencia)
       const mEditComp = path.match(/^\/api\/receipts\/([A-Z0-9:]+)\/payment\/(\d+)\/comprobante$/);
       if (request.method === 'POST' && mEditComp) {
