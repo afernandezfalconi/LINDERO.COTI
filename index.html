@@ -4507,15 +4507,11 @@ async function cargarRecibos(){
       tablaDiv.innerHTML='';
       recibo.historiaPagos.forEach((pago,i)=>{
         const fecha=new Date(pago.fecha).toLocaleDateString('es-MX');
-        const acciones = `<div style="margin-top:.35rem;display:flex;flex-direction:column;gap:.35rem">
-            ${pago.comprobanteArchivo ? `<div style="display:flex;gap:.35rem">
-              <button class="tb" style="padding:3px 8px;font-size:10px" onclick="verComprobantePago(${i})"><i class="ti ti-eye" aria-hidden="true"></i> Ver</button>
-              <button class="tb" style="padding:3px 8px;font-size:10px" onclick="descargarComprobantePago(${i})"><i class="ti ti-download" aria-hidden="true"></i> Descargar</button>
-            </div>` : '<span style="font-size:10px;color:var(--muted)">Sin comprobante</span>'}
-            <div style="display:flex;gap:.35rem">
-              <button class="tb" style="padding:3px 8px;font-size:10px" onclick="cambiarComprobantePago(${i})"><i class="ti ti-refresh" aria-hidden="true"></i> ${pago.comprobanteArchivo?'Cambiar':'Subir'}</button>
-              <button class="tb" style="padding:3px 8px;font-size:10px;color:var(--red);border-color:var(--red)" title="Eliminar este pago" onclick="eliminarPago(${i})"><i class="ti ti-x" aria-hidden="true"></i> Eliminar</button>
-            </div>
+        const acciones = `<div style="display:flex;gap:.3rem;margin-top:.35rem;align-items:center;flex-wrap:wrap">
+            ${pago.comprobanteArchivo ? `<button class="tb" style="padding:3px 7px;font-size:10px" onclick="verComprobantePago(${i})"><i class="ti ti-eye" aria-hidden="true"></i> Ver</button>
+            <button class="tb" style="padding:3px 7px;font-size:10px" onclick="descargarComprobantePago(${i})"><i class="ti ti-download" aria-hidden="true"></i> Descargar</button>` : '<span style="font-size:10px;color:var(--muted)">Sin comprobante</span>'}
+            <button class="tb" style="padding:3px 7px;font-size:10px" onclick="cambiarComprobantePago(${i})"><i class="ti ti-refresh" aria-hidden="true"></i> ${pago.comprobanteArchivo?'Cambiar':'Subir'}</button>
+            <button class="tb" style="padding:3px 7px;font-size:12px;color:var(--red);border-color:var(--red);margin-left:auto" title="Eliminar este pago" onclick="eliminarPago(${i})"><i class="ti ti-x" aria-hidden="true"></i></button>
           </div>`;
         const fila=`<div style="background:var(--bg3);padding:0.5rem;border-radius:4px">
           <div style="display:flex;justify-content:space-between">
