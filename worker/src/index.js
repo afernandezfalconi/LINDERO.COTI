@@ -1109,6 +1109,58 @@ export default {
         return json({ ok: true, procesadas }, 200, origin);
       }
 
+      // ── MIGRACIÓN: recalcular CANTIDAD de postes (ADMIN, NO toca el total) ─
+      // Aplica la lógica nueva de conteo (round por lado, esquinas aparte, vano sensible)
+      // y reescribe SOLO resumenDetalles.postesLinea / postesEsq. No modifica resumenTotal,
+      // resumenCliente, montoNegociado, pagos ni costos. Usar ?dry=1 para previsualizar.
+      if (request.method === 'POST' && path === '/api/admin/recalcular-postes') {
+        if (!(await hasPermission(user, PERMISSIONS.VIEW_AUDIT)) && user.email !== ADMIN_EMAIL) {
+          return json({ error: 'Solo admin' }, 403, origin);
+        }
+        const dry = url.searchParams.get('dry') === '1';
+        const detalle = [];
+        let revisadas = 0, cambiadas = 0, sinDatos = 0;
+        let cur;
+        do {
+          const r = await env.COTIZACIONES.list({ prefix: KV_PREFIX, cursor: cur, limit: 100 });
+          for (const k of r.keys) {
+            const folio = k.name.slice(KV_PREFIX.length);
+            const raw = await env.COTIZACIONES.get(k.name);
+            if (!raw) continue;
+            let rec; try { rec = JSON.parse(raw); } catch (e) { continue; }
+            revisadas++;
+            const lados = Array.isArray(rec.lados) ? rec.lados : [];
+            const sepSel = rec.selects && rec.selects.sep;
+            const sp = parseFloat(sepSel === 'custom' ? (rec.campos && rec.campos['sep-v']) : sepSel);
+            if (!(sp > 0) || lados.length === 0) { sinDatos++; detalle.push({ folio, motivo: 'sin lados/sep' }); continue; }
+            const conPorton = !!rec.conPorton;
+            const pa = conPorton ? (parseFloat(rec.campos && rec.campos['po-a']) || 5) : 0;
+            let pl = 0;
+            for (const s of lados) { const L = parseFloat(s) || 0; pl += Math.max(0, Math.round(L / sp) - 1); }
+            if (conPorton && pa > 0) { const d = Math.max(0, Math.floor(pa / sp) - 1); pl = Math.max(0, pl - d); }
+            const nL = Number.isFinite(rec.nL) ? rec.nL : lados.length;
+
+            rec.resumenDetalles = rec.resumenDetalles || {};
+            const antesPL = rec.resumenDetalles.postesLinea || '';
+            const antesPE = rec.resumenDetalles.postesEsq || '';
+            const nuevoPL = /^\s*\d+/.test(antesPL) ? antesPL.replace(/^\s*\d+/, String(pl)) : (pl + ' pzas');
+            const nuevoPE = /^\s*\d+/.test(antesPE) ? antesPE.replace(/^\s*\d+/, String(nL)) : (nL + ' pzas');
+
+            if (nuevoPL !== antesPL || nuevoPE !== antesPE) {
+              cambiadas++;
+              detalle.push({ folio, plAntes: antesPL, plDespues: nuevoPL, peAntes: antesPE, peDespues: nuevoPE });
+              if (!dry) {
+                rec.resumenDetalles.postesLinea = nuevoPL;
+                rec.resumenDetalles.postesEsq = nuevoPE;
+                await putRecord(env, folio, rec); // preserva metadata/flags; no toca totales
+              }
+            }
+          }
+          cur = r.list_complete ? null : r.cursor;
+        } while (cur);
+        return json({ ok: true, dry, revisadas, cambiadas, sinDatos, detalle }, 200, origin);
+      }
+
       // ── OBTENER COTIZACIÓN ───────────────────────────────────────────
       if (request.method === 'GET' && path.match(/^\/api\/cotizaciones\/[^/]+$/)) {
         if (!(await hasPermission(user, PERMISSIONS.VIEW_COTIZACIONES))) {
