@@ -1679,12 +1679,14 @@ function toggleFundInfo(){
 // Postes de LÍNEA (intermedios entre esquinas), conteo exacto por lado: cada lado
 // necesita ceil(largo/sp) tramos -> ceil(largo/sp)-1 postes intermedios. Los esquineros
 // (uno por vértice) se cuentan aparte (pe=nL), así no se cuentan dos veces.
-// El vano (portón) NO reduce el conteo de postes: las dos jambas del portón reemplazan
-// al poste intermedio que caería dentro del hueco, así que el número de postes de línea
-// queda igual al del perímetro completo. Verificado en campo: 10×20 m @3.30 = 18 intermedios
-// (+4 esquineros); 20×20 m @3.30 = 24 (+4). El vano solo descuenta el METRAJE de malla/
-// alambre (pef = perímetro − vano en calc()), no los postes. El param pa se conserva por
-// compatibilidad de llamadas pero ya no se usa aquí.
+// El vano (portón) descuenta los postes de línea que caen DENTRO del hueco, y es
+// sensible al ancho: un vano cabe floor(pa/sp) separaciones, así que quita
+// floor(pa/sp)-1 postes intermedios (las 2 jambas del portón van en los bordes y se
+// cotizan con el herrero, no se cuentan aquí). Un vano "normal" (≤ 2 separaciones,
+// p.ej. 5 m @3.30) no quita ninguno; los vanos anchos (doble portón, 8-13 m) sí.
+// Verificado en campo: 10×20 m @3.30 con vano 5 m = 18 intermedios (+4 esquineros);
+// 20×20 m @3.30 = 24 (+4). El vano además descuenta el METRAJE de malla/alambre
+// (pef = perímetro − vano en calc()).
 function contarPostesLinea(sp, pa){
   if(!(sp>0)) return 0;
   const arr=[...document.getElementById('lgrid').querySelectorAll('input')].map(i=>parseFloat(i.value)||0);
@@ -1692,6 +1694,10 @@ function contarPostesLinea(sp, pa){
   let pl=0;
   for(let i=0;i<arr.length;i++){
     pl+=Math.max(0,Math.ceil(arr[i]/sp)-1);
+  }
+  if(conPorton && pa>0){
+    const dentroVano=Math.max(0, Math.floor(pa/sp)-1); // postes intermedios que caen en el hueco
+    pl=Math.max(0, pl-dentroVano);
   }
   return pl;
 }
