@@ -1676,16 +1676,16 @@ function toggleFundInfo(){
 }
 
 // ── CÁLCULO ───────────────────────────────────────────────────────
-// Postes de LÍNEA (intermedios entre esquinas), conteo exacto por lado: cada lado
-// necesita ceil(largo/sp) tramos -> ceil(largo/sp)-1 postes intermedios. Los esquineros
-// (uno por vértice) se cuentan aparte (pe=nL), así no se cuentan dos veces.
-// El vano (portón) descuenta los postes de línea que caen DENTRO del hueco, y es
-// sensible al ancho: un vano cabe floor(pa/sp) separaciones, así que quita
-// floor(pa/sp)-1 postes intermedios (las 2 jambas del portón van en los bordes y se
-// cotizan con el herrero, no se cuentan aquí). Un vano "normal" (≤ 2 separaciones,
-// p.ej. 5 m @3.30) no quita ninguno; los vanos anchos (doble portón, 8-13 m) sí.
-// Verificado en campo: 10×20 m @3.30 con vano 5 m = 18 intermedios (+4 esquineros);
-// 20×20 m @3.30 = 24 (+4). El vano además descuenta el METRAJE de malla/alambre
+// Postes de LÍNEA (intermedios entre esquinas), conteo por lado con redondeo al MÁS
+// CERCANO: cada lado se reparte en round(largo/sp) tramos -> round(largo/sp)-1 postes
+// intermedios. Las esquinas están fijas y se cuentan aparte (pe=nL). Se usa round (no
+// ceil) porque ceil redondea cada lado hacia arriba y sobre-cuenta ~1 poste por lado.
+// Verificado en campo: 10×20 m @3.30 = 14 lineales (+4 esquineros = 18 total); 20×20 m
+// @3.30 = 20 lineales (+4 = 24 total). Coincide con el conteo continuo round(perímetro/sp).
+// El vano (portón) descuenta los postes de línea que caen DENTRO del hueco, sensible al
+// ancho: quita floor(pa/sp)-1 intermedios (las 2 jambas van en los bordes, se cotizan con
+// el herrero). Vano "normal" (≤ 2 separaciones, 5 m @3.30) no quita ninguno; los anchos
+// (doble portón, 8-13 m) sí. El vano además descuenta el METRAJE de malla/alambre
 // (pef = perímetro − vano en calc()).
 function contarPostesLinea(sp, pa){
   if(!(sp>0)) return 0;
@@ -1693,7 +1693,7 @@ function contarPostesLinea(sp, pa){
   if(arr.length===0) return 0;
   let pl=0;
   for(let i=0;i<arr.length;i++){
-    pl+=Math.max(0,Math.ceil(arr[i]/sp)-1);
+    pl+=Math.max(0,Math.round(arr[i]/sp)-1);
   }
   if(conPorton && pa>0){
     const dentroVano=Math.max(0, Math.floor(pa/sp)-1); // postes intermedios que caen en el hueco
