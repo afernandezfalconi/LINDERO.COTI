@@ -1678,22 +1678,20 @@ function toggleFundInfo(){
 // ── CÁLCULO ───────────────────────────────────────────────────────
 // Postes de LÍNEA (intermedios entre esquinas), conteo exacto por lado: cada lado
 // necesita ceil(largo/sp) tramos -> ceil(largo/sp)-1 postes intermedios. Los esquineros
-// (uno por vértice) se cuentan aparte (pe=nL), así no se cuentan dos veces. El vano se
-// descuenta del lado del portón, que además lleva el poste del extremo del vano.
+// (uno por vértice) se cuentan aparte (pe=nL), así no se cuentan dos veces.
+// El vano (portón) NO reduce el conteo de postes: las dos jambas del portón reemplazan
+// al poste intermedio que caería dentro del hueco, así que el número de postes de línea
+// queda igual al del perímetro completo. Verificado en campo: 10×20 m @3.30 = 18 intermedios
+// (+4 esquineros); 20×20 m @3.30 = 24 (+4). El vano solo descuenta el METRAJE de malla/
+// alambre (pef = perímetro − vano en calc()), no los postes. El param pa se conserva por
+// compatibilidad de llamadas pero ya no se usa aquí.
 function contarPostesLinea(sp, pa){
   if(!(sp>0)) return 0;
   const arr=[...document.getElementById('lgrid').querySelectorAll('input')].map(i=>parseFloat(i.value)||0);
   if(arr.length===0) return 0;
-  let idxPorton=-1;
-  if(conPorton){
-    const sel=parseInt(document.getElementById('po-l').value);
-    idxPorton=(Number.isInteger(sel)&&sel>=0&&sel<arr.length)?sel:arr.indexOf(Math.max(...arr)); // si no se eligió lado, se usa el más largo
-  }
   let pl=0;
   for(let i=0;i<arr.length;i++){
-    let L=arr[i];
-    if(i===idxPorton){ L=Math.max(0,L-pa); pl+=Math.max(0,Math.ceil(L/sp)); } // + poste del extremo del vano
-    else { pl+=Math.max(0,Math.ceil(L/sp)-1); }
+    pl+=Math.max(0,Math.ceil(arr[i]/sp)-1);
   }
   return pl;
 }
