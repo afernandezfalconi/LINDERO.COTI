@@ -908,16 +908,16 @@ function irAlHome(){
             </div>
             <div class="f" style="margin-bottom:.5rem">
               <label>¿Qué cubre el subcontrato?</label>
-              <select id="sub-modo" onchange="calc()">
+              <select id="sub-modo" onchange="cambiarModoSub()">
                 <option value="mo">Solo mano de obra (materiales aparte)</option>
-                <option value="todo">Instalación completa (materiales + mano de obra)</option>
+                <option value="todo">Servicio completo (materiales + mano de obra)</option>
               </select>
             </div>
             <div class="f" style="margin-bottom:0">
               <label>Precio del subcontratista</label>
               <div class="ip" style="max-width:220px"><span>$</span><input type="number" id="subcontrato-precio" min="0" step="0.01" placeholder="0.00" oninput="calc()"></div>
             </div>
-            <div class="ni" style="margin-top:.5rem"><b>Solo mano de obra:</b> el precio reemplaza la M.O. y los materiales se cotizan aparte. <b>Instalación completa:</b> el precio es TODO (materiales + M.O.) y se ignoran los costos de materiales calculados. Los subcontratistas se crean en <b>Proveedores</b> poniéndoles precio a "Instalación / mano de obra".</div>
+            <div class="ni" style="margin-top:.5rem"><b>Solo mano de obra:</b> el precio reemplaza la M.O. y los materiales se cotizan aparte. <b>Servicio completo:</b> el precio es TODO (materiales + M.O.) y se ignoran los costos de materiales calculados. Al elegir el modo se jala el precio correspondiente del subcontratista. Los subcontratistas se crean en <b>Proveedores</b> poniéndoles precio a "Servicio completo" y/o "Solo mano de obra".</div>
           </div>
         </div>
       </div>
@@ -1755,18 +1755,33 @@ function toggleSubcontrato(){
   document.getElementById('subcontrato-wrap').style.display=on?'block':'none';
   calc();
 }
-// Al elegir un subcontratista guardado, se llena su precio de "Instalación".
-function cargarSubcontratista(sel){
-  const opt=sel.options[sel.selectedIndex];
-  if(opt && opt.dataset.providerData){
-    try{
-      const p=JSON.parse(opt.dataset.providerData);
-      const m=(p.materiales||[]).find(x=>x.tipo==='instalacion');
-      if(m && m.precio) document.getElementById('subcontrato-precio').value=m.precio;
-    }catch(e){}
-  }
+// Alimenta el precio del subcontratista según el modo elegido:
+//   'todo' (servicio completo) -> precio del servicio 'instalacion'
+//   'mo'   (solo mano de obra)  -> precio del servicio 'mano-obra'
+// Compatibilidad: si el proveedor solo tiene el 'instalacion' viejo (precio único),
+// ese precio sirve de respaldo para ambos modos. Si es manual (sin proveedor), no toca el precio.
+function precioSubDeProveedor(){
+  const sel=document.getElementById('sel-subcontratista');
+  const opt=sel && sel.options[sel.selectedIndex];
+  if(!(opt && opt.dataset.providerData)){ calc(); return; } // manual: conserva lo escrito
+  try{
+    const p=JSON.parse(opt.dataset.providerData);
+    const mats=p.materiales||[];
+    const modo=(document.getElementById('sub-modo')||{}).value||'mo';
+    const completo=mats.find(x=>x.tipo==='instalacion');
+    const soloMO=mats.find(x=>x.tipo==='mano-obra');
+    const elegido = modo==='todo' ? (completo||soloMO) : (soloMO||completo); // respaldo cruzado
+    const inp=document.getElementById('subcontrato-precio');
+    if(elegido && elegido.precio!=null){ inp.value=elegido.precio; }
+    else {
+      inp.value='';
+      toast('Este subcontratista no tiene precio de '+(modo==='todo'?'servicio completo':'solo mano de obra'), false);
+    }
+  }catch(e){}
   calc();
 }
+function cargarSubcontratista(sel){ precioSubDeProveedor(); }
+function cambiarModoSub(){ precioSubDeProveedor(); }
 function getP(){let t=0; document.getElementById('lgrid').querySelectorAll('input').forEach(i=>t+=parseFloat(i.value)||0); return t;}
 function getSp(){const v=document.getElementById('sep').value; return v==='custom'?(parseFloat(document.getElementById('sep-v').value)||2):parseFloat(v);}
 function $m(v){if(v===null||v===undefined||isNaN(v))return'—'; return'$'+v.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -2517,8 +2532,14 @@ async function refrescarSelectorProveedores(){
           const data=JSON.stringify(p);
           addOpt(selP,p.id,`${p.nombre} — ${(p.materiales||[]).length} material(es)`,data);
           addOpt(selR,p.id,`${p.nombre} — ${(p.materiales||[]).length} material(es)`,data);
-          const inst=(p.materiales||[]).find(m=>m.tipo==='instalacion');
-          if(selS && inst) addOpt(selS,p.id,`${p.nombre} — $${inst.precio} instalación`,data);
+          const completo=(p.materiales||[]).find(m=>m.tipo==='instalacion');
+          const soloMO=(p.materiales||[]).find(m=>m.tipo==='mano-obra');
+          if(selS && (completo||soloMO)){
+            const partes=[];
+            if(completo) partes.push(`completo $${completo.precio}`);
+            if(soloMO) partes.push(`M.O. $${soloMO.precio}`);
+            addOpt(selS,p.id,`${p.nombre} — ${partes.join(' · ')}`,data);
+          }
         });
       }
     }catch(e){ console.warn('No se pudo cargar proveedores del API:', e); }
@@ -3824,7 +3845,8 @@ const CATALOGO_MATERIALES=[
   {tipo:'varilla', label:'Varilla 3/8"', costId:'p-va'},
   {tipo:'alambron', label:'Alambrón 1/4"', costId:'p-al'},
   {tipo:'grampas', label:'Grampas / grapas (por caja)', costId:'p-gp', caja:true},
-  {tipo:'instalacion', label:'Instalación / mano de obra (servicio)', costId:'subcontrato-precio', servicio:true},
+  {tipo:'instalacion', label:'Servicio completo — instalación (materiales + M.O.)', costId:'subcontrato-precio', servicio:true},
+  {tipo:'mano-obra', label:'Solo mano de obra — instalación', servicio:true},
 ];
 function labelMaterial(tipo){ const m=CATALOGO_MATERIALES.find(c=>c.tipo===tipo); return m?m.label:tipo; }
 
