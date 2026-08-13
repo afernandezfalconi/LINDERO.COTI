@@ -729,6 +729,9 @@ export default {
       const eW  = nd((rec.campos && rec.campos['dim-e-w']) || 15);
       const eH  = nd((rec.campos && rec.campos['dim-e-h']) || 2);
       const hebras = (rec.selects && rec.selects['hebras']) || '3';
+      const esMalla = ((rec.selects && rec.selects['cerramiento']) || 'puas') === 'malla';
+      const calMalla = nd((rec.campos && rec.campos['cal-malla']) || 11.5);
+      const altMalla = nd((rec.campos && rec.campos['alt-malla']) || 1.5);
 
       const materialTipo = mat === 'w' ? 'Madera tratada' : 'Concreto';
       const dimsLinea = mat === 'w' ? `Ø${lwD}×${lwH}` : `${lcW}×${lcW}×${lcH}`;
@@ -740,7 +743,9 @@ export default {
 
       const postesLinea = lineaPzas ? `${lineaPzas} (${materialTipo.toLowerCase()} ${dimsLinea})` : (rec.resumenDetalles?.postesLinea || '—');
       const postesEsq   = esqPzas   ? `${esqPzas} (concreto ${eW}×${eW}×${eH})` : (rec.resumenDetalles?.postesEsq || '—');
-      const alambre     = metros && metros !== '—' ? `${metros} de alambre de púas · ${hebras} hebras` : '—';
+      const alambre     = metros && metros !== '—'
+        ? (esMalla ? `${metros} de malla galvanizada · cal. ${calMalla} · ${altMalla} m de altura` : `${metros} de alambre de púas · ${hebras} hebras`)
+        : '—';
 
       // Croquis del terreno (imagen del trazado guardada en la cotización). Si la
       // cotización se hizo con medidas manuales (sin plano), no hay snapshot y se omite.
@@ -753,7 +758,7 @@ export default {
         <tr><td>Postes esquineros</td><td>${postesEsq}</td></tr>
         <tr><td>Material</td><td>${materialTipo}</td></tr>
         <tr><td>Modo</td><td>${rec.resumenDetalles?.modo || '—'}</td></tr>
-        <tr><td>Alambre</td><td>${alambre}</td></tr>
+        <tr><td>${esMalla ? 'Malla' : 'Alambre'}</td><td>${alambre}</td></tr>
       `;
 
       // Sección de aceptación del cliente: si ya aceptó, se muestra confirmación; si no, el formulario.

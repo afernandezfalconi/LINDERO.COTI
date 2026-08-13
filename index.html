@@ -826,19 +826,44 @@ function irAlHome(){
         <div style="font-size:12px;color:var(--muted);font-family:var(--fm);margin-bottom:.75rem">Alambre, fundición y mano de obra</div>
         <div class="crow"><div><div class="cn">Cemento</div><div class="cs">por tonelada · $240/saco 50 kg · usado en fundición de bases (y fabricación si aplica)</div></div><div class="ip"><span>$</span><input type="number" id="p-ce" value="4800" oninput="calc()"></div></div>
         <div class="crow">
-          <div><div class="cn">Líneas de alambre de púa</div><div class="cs">número de hebras horizontales en la cerca</div></div>
-          <select id="hebras" onchange="calc()" style="text-align:right">
-            <option value="1">1 línea</option>
-            <option value="2">2 líneas</option>
-            <option value="3" selected>3 líneas</option>
-            <option value="4">4 líneas</option>
+          <div><div class="cn">Tipo de cercado</div><div class="cs">alambre de púa por hebras, o malla galvanizada</div></div>
+          <select id="cerramiento" onchange="toggleCerramiento()" style="text-align:right">
+            <option value="puas" selected>Alambre de púa</option>
+            <option value="malla">Malla galvanizada</option>
           </select>
         </div>
-        <div class="crow">
-          <div><div class="cn">Alambre de púa cal. 12.5</div><div class="cs">precio/rollo · m por rollo</div></div>
-          <div style="display:flex;gap:.5rem">
-            <div class="ip" style="width:90px"><span>$</span><input type="number" id="p-pw" class="pend" placeholder="—" oninput="calc()" style="width:90px"></div>
-            <div class="ip" style="width:76px"><span style="left:6px;font-size:11px">m</span><input type="number" id="m-pw" value="200" oninput="calc()" style="width:76px;padding-left:22px"></div>
+        <div id="cerr-puas">
+          <div class="crow">
+            <div><div class="cn">Líneas de alambre de púa</div><div class="cs">número de hebras horizontales en la cerca</div></div>
+            <select id="hebras" onchange="calc()" style="text-align:right">
+              <option value="1">1 línea</option>
+              <option value="2">2 líneas</option>
+              <option value="3" selected>3 líneas</option>
+              <option value="4">4 líneas</option>
+            </select>
+          </div>
+          <div class="crow">
+            <div><div class="cn">Alambre de púa cal. 12.5</div><div class="cs">precio/rollo · m por rollo</div></div>
+            <div style="display:flex;gap:.5rem">
+              <div class="ip" style="width:90px"><span>$</span><input type="number" id="p-pw" class="pend" placeholder="—" oninput="calc()" style="width:90px"></div>
+              <div class="ip" style="width:76px"><span style="left:6px;font-size:11px">m</span><input type="number" id="m-pw" value="200" oninput="calc()" style="width:76px;padding-left:22px"></div>
+            </div>
+          </div>
+        </div>
+        <div id="cerr-malla" style="display:none">
+          <div class="crow">
+            <div><div class="cn">Malla galvanizada</div><div class="cs">calibre · altura (m) — una sola faja que cubre el alto</div></div>
+            <div style="display:flex;gap:.5rem">
+              <div class="ip" style="width:82px"><span style="left:6px;font-size:11px">cal</span><input type="number" id="cal-malla" value="11.5" step="0.5" oninput="calc()" style="width:82px;padding-left:32px"></div>
+              <div class="ip" style="width:76px"><span style="left:6px;font-size:11px">m</span><input type="number" id="alt-malla" value="1.5" step="0.1" oninput="calc()" style="width:76px;padding-left:22px"></div>
+            </div>
+          </div>
+          <div class="crow">
+            <div><div class="cn">Precio malla galvanizada</div><div class="cs">precio/rollo · m lineales por rollo</div></div>
+            <div style="display:flex;gap:.5rem">
+              <div class="ip" style="width:90px"><span>$</span><input type="number" id="p-malla" value="2000" oninput="calc()" style="width:90px"></div>
+              <div class="ip" style="width:76px"><span style="left:6px;font-size:11px">m</span><input type="number" id="m-malla" value="20" oninput="calc()" style="width:76px;padding-left:22px"></div>
+            </div>
           </div>
         </div>
         <div class="crow" id="row-grampas"><div><div class="cn">Grampas / grapas</div><div class="cs">por kg</div></div><div class="ip"><span>$</span><input type="number" id="p-gp" class="pend" placeholder="—" oninput="calc()"></div></div>
@@ -1022,7 +1047,7 @@ function irAlHome(){
     <div class="rr"><span class="l">Material</span><span class="v" id="r-ma">—</span></div>
     <div class="rr"><span class="l">Modo</span><span class="v" id="r-mo">—</span></div>
   </div>
-  <div class="rs"><div class="rsl">Alambre de púa <span id="r-hebras-lbl">(3 hebras)</span></div>
+  <div class="rs"><div class="rsl"><span id="r-cerr-lbl">Alambre de púa</span> <span id="r-hebras-lbl">(3 hebras)</span></div>
     <div class="rr"><span class="l">Metros totales</span><span class="v" id="r-ml">0 m</span></div>
     <div class="rr"><span class="l">Precio por metro</span><span class="v" id="r-ppm">—</span></div>
     <div class="rr"><span class="l">Rollos a comprar</span><span class="v hi" id="r-rl">0 rollos</span></div>
@@ -1036,7 +1061,7 @@ function irAlHome(){
   <div class="rs"><div class="rsl">Desglose</div>
     <div class="rr"><span class="l">Postes de línea</span><span class="v" id="r-cl">—</span></div>
     <div class="rr"><span class="l">Postes esquineros</span><span class="v" id="r-ce">—</span></div>
-    <div class="rr"><span class="l">Alambre (uso exacto)</span><span class="v" id="r-ca">—</span></div>
+    <div class="rr"><span class="l" id="r-ca-lbl">Alambre (uso exacto)</span><span class="v" id="r-ca">—</span></div>
     <div class="rr" id="r-ca-ref-row" style="display:none"><span class="l" style="font-size:11px">↳ comprando rollos completos</span><span class="v" id="r-ca-ref" style="font-size:11px;color:var(--muted)">—</span></div>
     <div class="rr"><span class="l">Mano de obra</span><span class="v" id="r-cm">—</span></div>
     <div class="rr"><span class="l" id="r-co-lbl">Fundición de postes</span><span class="v" id="r-co">—</span></div>
@@ -1154,7 +1179,7 @@ function irAlHome(){
     <tr><td>Postes esquineros</td><td id="ph-postes-esq">—</td></tr>
     <tr><td>Material</td><td id="ph-material">—</td></tr>
     <tr><td>Modo</td><td id="ph-modo">—</td></tr>
-    <tr><td>Alambre de púa</td><td id="ph-alambre">—</td></tr>
+    <tr><td id="ph-alambre-lbl">Alambre de púa</td><td id="ph-alambre">—</td></tr>
     <tr><td>Mano de obra</td><td id="ph-mo">—</td></tr>
   </table>
 
@@ -1162,7 +1187,7 @@ function irAlHome(){
     <tr><th colspan="2">Desglose de costos</th></tr>
     <tr><td>Postes de línea</td><td id="ph-c-linea">—</td></tr>
     <tr><td>Postes esquineros</td><td id="ph-c-esq">—</td></tr>
-    <tr><td>Alambre de púa</td><td id="ph-c-alambre">—</td></tr>
+    <tr><td id="ph-c-alambre-lbl">Alambre de púa</td><td id="ph-c-alambre">—</td></tr>
     <tr><td>Mano de obra</td><td id="ph-c-mo">—</td></tr>
     <tr><td id="ph-c-otros-lbl">Fundición de postes</td><td id="ph-c-otros">—</td></tr>
     <tr><td>Costo total (sin margen)</td><td id="ph-c-base">—</td></tr>
@@ -1701,6 +1726,30 @@ function contarPostesLinea(sp, pa){
   }
   return pl;
 }
+// Cercado: alambre de púa (varias hebras horizontales) o malla galvanizada (una sola faja
+// que cubre la altura). Devuelve metros de material, rollos y costo por USO EXACTO (mismo
+// criterio que el alambre). Defaults de malla: 20 m lineales/rollo, $2000, cal. 11.5, alt 1.5 m.
+function calcCercado(pef){
+  const esMalla=(document.getElementById('cerramiento')||{}).value==='malla';
+  const hebras=parseInt(document.getElementById('hebras').value)||3;
+  const mAl=esMalla?pef:pef*hebras;
+  const mR=esMalla?(parseFloat((document.getElementById('m-malla')||{}).value)||20)
+                  :(parseFloat(document.getElementById('m-pw').value)||200);
+  const rol=mAl>0?Math.ceil(mAl/mR):0;
+  const pW=esMalla?(fv('p-malla')!==null?fv('p-malla'):2000):fv('p-pw');
+  const precioPorMetro=pW!==null?pW/mR:null;
+  const cA=precioPorMetro!==null?mAl*precioPorMetro:null;      // uso exacto
+  const costoRollosCompletos=pW!==null?rol*pW:null;            // referencia rollos enteros
+  return {esMalla,hebras,mAl,mR,rol,pW,precioPorMetro,cA,costoRollosCompletos};
+}
+// Muestra las filas de púa o de malla según el tipo de cercado elegido.
+function toggleCerramiento(){
+  const malla=(document.getElementById('cerramiento')||{}).value==='malla';
+  const p=document.getElementById('cerr-puas'), m=document.getElementById('cerr-malla');
+  if(p) p.style.display=malla?'none':'';
+  if(m) m.style.display=malla?'':'none';
+  calc();
+}
 function toggleSubcontrato(){
   const on=document.getElementById('chk-subcontrato').checked;
   document.getElementById('subcontrato-wrap').style.display=on?'block':'none';
@@ -1781,10 +1830,8 @@ function calc(){
   const pef=Math.max(0,per-pa);
   const pl=pef>0?contarPostesLinea(sp,pa):0; // conteo exacto por lado (no sobre-cuenta esquinas)
   const pe=nL; // esquinero por cada vértice
-  const hebras=parseInt(document.getElementById('hebras').value)||3;
-  const mAl=pef*hebras;
-  const mR=parseFloat(document.getElementById('m-pw').value)||200;
-  const rol=mAl>0?Math.ceil(mAl/mR):0;
+  const cerc=calcCercado(pef);
+  const {esMalla,hebras,mAl,mR,rol}=cerc;
   const leq=per/60;
   const dias=per>0?Math.max(1,Math.ceil(leq/1.5)):0;
   // Mano de obra: por días; si se subcontrata la instalación, precio fijo (solo M.O.).
@@ -1812,10 +1859,10 @@ function calc(){
   }
   const pE=mp==='buy'?fv('p-e1'):fv('p-e2');
   const cE=pE!==null?pe*pE:null;
-  const pW=fv('p-pw');
-  const precioPorMetro = pW!==null ? pW/mR : null;
-  const cA=precioPorMetro!==null?mAl*precioPorMetro:null; // costo real por uso exacto, no por rollos completos
-  const costoRollosCompletos = pW!==null?rol*pW:null; // referencia: lo que se gasta comprando rollos enteros
+  const pW=cerc.pW;
+  const precioPorMetro=cerc.precioPorMetro;
+  const cA=cerc.cA; // costo real por uso exacto, no por rollos completos
+  const costoRollosCompletos=cerc.costoRollosCompletos; // referencia: rollos enteros
   // Concreto de fundición (base de cada poste)
   // Hoyo: diámetro = 3× el ancho del poste, profundidad = 1/3 del largo del poste (estándar)
   // Volumen hoyo = π·r²·h, menos el volumen que ocupa el propio poste enterrado
@@ -1895,7 +1942,15 @@ function calc(){
   document.getElementById('r-pe2').textContent=pe+' pzas (concreto '+eWcm+'×'+eWcm+')';
   document.getElementById('r-ma').textContent=mat==='c'?('Concreto '+(fv('dim-lc-w')||12)+'×'+(fv('dim-lc-w')||12)+'×'+(fv('dim-lc-h')||2)+'m'):('Madera Ø'+(fv('dim-lw-d')||10)+'cm×'+(fv('dim-lw-h')||2)+'m');
   document.getElementById('r-mo').textContent=mp==='buy'?'Prefabricados':'Fabricados en obra';
-  document.getElementById('r-hebras-lbl').textContent='('+hebras+' hebra'+(hebras!==1?'s':'')+')';
+  if(esMalla){
+    document.getElementById('r-cerr-lbl').textContent='Malla galvanizada';
+    document.getElementById('r-hebras-lbl').textContent='(cal '+(fv('cal-malla')||11.5)+' · '+(fv('alt-malla')||1.5)+' m)';
+    document.getElementById('r-ca-lbl').textContent='Malla (uso exacto)';
+  } else {
+    document.getElementById('r-cerr-lbl').textContent='Alambre de púa';
+    document.getElementById('r-hebras-lbl').textContent='('+hebras+' hebra'+(hebras!==1?'s':'')+')';
+    document.getElementById('r-ca-lbl').textContent='Alambre (uso exacto)';
+  }
   document.getElementById('r-ml').textContent=Math.round(mAl)+' m';
   document.getElementById('r-ppm').textContent=precioPorMetro!==null?('$'+precioPorMetro.toFixed(2)+'/m'):'—';
   document.getElementById('r-rl').textContent=rol+' rollo'+(rol!==1?'s':'')+' ('+mR+' m c/u)';
@@ -1939,8 +1994,9 @@ function calc(){
 // Lista de IDs de inputs simples (texto/número) que se guardan tal cual
 const CAMPOS_SIMPLES=['cli-n','cli-f','cli-u','l-mz','l-nu','sep-v','po-a','margen','area-plano',
   'p-pw','m-pw','p-lc','p-lw','p-e1','p-e2','p-ce','p-ar','p-gr','p-va','p-al','p-gp',
-  'dim-lc-w','dim-lc-h','dim-lw-d','dim-lw-h','dim-e-w','dim-e-h','subcontrato-precio'];
-const SELECTS_SIMPLES=['sep','modo-p','po-l','hebras'];
+  'dim-lc-w','dim-lc-h','dim-lw-d','dim-lw-h','dim-e-w','dim-e-h','subcontrato-precio',
+  'p-malla','m-malla','cal-malla','alt-malla'];
+const SELECTS_SIMPLES=['sep','modo-p','po-l','hebras','cerramiento'];
 
 // ── NUBE (Cloudflare Worker + KV) ─────────────────────────────────
 // Las cotizaciones se guardan en la nube y son consultables desde cualquier
@@ -2310,7 +2366,7 @@ async function cargarCotizacion(key){
       const el=document.getElementById(id);
       if(el && data.selects && data.selects[id]!==undefined) el.value=data.selects[id];
     });
-    toggleSep(); toggleModo();
+    toggleSep(); toggleModo(); toggleCerramiento();
 
     // Material y portón (toggles)
     setMat(data.mat||'c', document.getElementById(data.mat==='w'?'btn-mat-w':'btn-mat-c'));
@@ -2721,6 +2777,9 @@ async function imprimirCotizacion(tipo){
   document.getElementById('ph-material').textContent=document.getElementById('r-ma').textContent;
   document.getElementById('ph-modo').textContent=document.getElementById('r-mo').textContent;
   document.getElementById('ph-alambre').textContent=document.getElementById('r-ml').textContent+' · '+document.getElementById('r-rl').textContent;
+  const cercLbl=(document.getElementById('cerramiento')||{}).value==='malla'?'Malla galvanizada':'Alambre de púa';
+  const phAl=document.getElementById('ph-alambre-lbl'); if(phAl) phAl.textContent=cercLbl;
+  const phCAl=document.getElementById('ph-c-alambre-lbl'); if(phCAl) phCAl.textContent=cercLbl;
   document.getElementById('ph-mo').textContent=document.getElementById('r-mo2').textContent;
 
   // Desglose
@@ -2957,9 +3016,8 @@ function calcularEscenario(matX, modoX){
   const pef=Math.max(0,per-pa);
   const pl=pef>0?contarPostesLinea(sp,pa):0; // conteo exacto por lado
   const pe=nL||4;
-  const hebras=parseInt(document.getElementById('hebras').value)||3;
-  const mAl=pef*hebras;
-  const mR=parseFloat(document.getElementById('m-pw').value)||200;
+  const cerc=calcCercado(pef);
+  const mAl=cerc.mAl, mR=cerc.mR;
   const leq=per/60;
   const dias=per>0?Math.max(1,Math.ceil(leq/1.5)):0;
   let cMO=dias*2*500;
@@ -2984,8 +3042,7 @@ function calcularEscenario(matX, modoX){
   }
   const pE=modoX==='buy'?fv('p-e1'):fv('p-e2');
   const cE=pE!==null?pe*pE:null;
-  const pW=fv('p-pw');
-  const cA=pW!==null?mAl*(pW/mR):null;
+  const cA=cerc.cA;
 
   const dimLcW=(fv('dim-lc-w')||12)/100, dimLcH=fv('dim-lc-h')||2.0;
   const dimLwD=(fv('dim-lw-d')||10)/100, dimLwH=fv('dim-lw-h')||2.0;
