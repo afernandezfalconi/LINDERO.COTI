@@ -472,11 +472,18 @@ function irAlHome(){
     </div>
     <div style="padding:.8rem 1.25rem;border-bottom:1px solid var(--border);background:var(--bg-soft);display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
       <input id="centro-q" placeholder="Buscar folio o cliente…" oninput="filtrarCentro()" style="flex:1;min-width:180px;padding:.5rem .7rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
-      <div class="tg" id="centro-chips" style="display:flex;gap:5px;flex-wrap:wrap">
+      <div class="tg" id="centro-chips" style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:11px;color:var(--muted);font-family:var(--fm)">Pago:</span>
         <button class="tbn on" data-ep="" onclick="setCentroEstado('',this)">Todas</button>
         <button class="tbn" data-ep="pagada" onclick="setCentroEstado('pagada',this)">Pagadas</button>
         <button class="tbn" data-ep="parcial" onclick="setCentroEstado('parcial',this)">Parciales</button>
         <button class="tbn" data-ep="pendiente" onclick="setCentroEstado('pendiente',this)">Pendientes</button>
+      </div>
+      <div class="tg" id="centro-chips-obra" style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:11px;color:var(--muted);font-family:var(--fm)">Obra:</span>
+        <button class="tbn on" data-eo="" onclick="setCentroFiltroObra('',this)">Todas</button>
+        <button class="tbn" data-eo="realizada" onclick="setCentroFiltroObra('realizada',this)">Realizadas</button>
+        <button class="tbn" data-eo="pendiente" onclick="setCentroFiltroObra('pendiente',this)">Pendientes</button>
       </div>
       <input type="date" id="centro-desde" onchange="filtrarCentro()" title="Pago desde" style="padding:.45rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
       <input type="date" id="centro-hasta" onchange="filtrarCentro()" title="Pago hasta" style="padding:.45rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
@@ -2920,12 +2927,13 @@ async function abrirCentro(){
       centroAll.push(...(r.items||[])); cursor=r.cursor; guard++;
     }while(cursor && guard<50);
     centroAll.sort((a,b)=>String(b.guardadoEn||'').localeCompare(String(a.guardadoEn||'')));
-    centroFiltro={estadoPago:'',q:'',desde:'',hasta:'',verCanceladas:false};
+    centroFiltro={estadoPago:'',estadoObra:'',q:'',desde:'',hasta:'',verCanceladas:false};
     document.getElementById('centro-q').value='';
     document.getElementById('centro-desde').value='';
     document.getElementById('centro-hasta').value='';
     const tgl=document.getElementById('centro-cancel-tgl'); if(tgl) tgl.classList.remove('on');
     [...document.querySelectorAll('#centro-chips .tbn')].forEach(b=>b.classList.toggle('on', b.dataset.ep===''));
+    [...document.querySelectorAll('#centro-chips-obra .tbn')].forEach(b=>b.classList.toggle('on', b.dataset.eo===''));
     renderCentro();
   }catch(e){
     tb.innerHTML='<tr><td colspan="8" style="padding:1.5rem;text-align:center;color:var(--red)">Error: '+((e&&e.message)||e)+'</td></tr>';
@@ -2933,6 +2941,7 @@ async function abrirCentro(){
 }
 function cerrarCentro(){ document.getElementById('modal-centro').style.display='none'; }
 function setCentroEstado(ep,btn){ centroFiltro.estadoPago=ep; [...document.querySelectorAll('#centro-chips .tbn')].forEach(b=>b.classList.toggle('on', b===btn)); renderCentro(); }
+function setCentroFiltroObra(eo,btn){ centroFiltro.estadoObra=eo; [...document.querySelectorAll('#centro-chips-obra .tbn')].forEach(b=>b.classList.toggle('on', b===btn)); renderCentro(); }
 function toggleCanceladas(btn){ centroFiltro.verCanceladas=!centroFiltro.verCanceladas; btn.classList.toggle('on', centroFiltro.verCanceladas); renderCentro(); }
 function filtrarCentro(){
   centroFiltro.q=(document.getElementById('centro-q').value||'').trim().toLowerCase();
@@ -2976,6 +2985,7 @@ function renderCentro(){
   const rows=centroAll.filter(it=>{
     if(!f.verCanceladas && it.estatus==='cancelada') return false;
     if(f.estadoPago && (it.estadoPago||'pendiente')!==f.estadoPago) return false;
+    if(f.estadoObra && (it.estadoObra||'pendiente')!==f.estadoObra) return false;
     if(f.q && !((it.folio||'')+' '+(it.cliente||'')).toLowerCase().includes(f.q)) return false;
     const fp=(it.fechaPago||it.guardadoEn||'').slice(0,10);
     if(f.desde && fp<f.desde) return false;
