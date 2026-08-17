@@ -57,7 +57,7 @@ const ALLOWED_ORIGINS = [
 ];
 
 const RATE_LIMIT_WINDOW = 60;      // 60 segundos
-const RATE_LIMIT_MAX = 100;        // 100 requests por ventana
+const RATE_LIMIT_MAX = 240;        // 240 requests por ventana (uso de admin: Centro, obra, landings)
 const AUTH_RATE_LIMIT_MAX = 5;     // 5 intentos de auth
 
 function fmtFolio(n) { return FOLIO_PREFIX + String(n).padStart(3, '0'); }
@@ -85,14 +85,21 @@ function json(data, status, origin) {
 // ── SEGURIDAD: Rate Limiting ──────────────────────────────────────────
 async function checkRateLimit(env, ip, isAuth = false) {
   const key = RATE_LIMIT_PREFIX + ip + (isAuth ? ':auth' : '');
-  const current = parseInt((await env.COTIZACIONES.get(key)) || '0');
   const limit = isAuth ? AUTH_RATE_LIMIT_MAX : RATE_LIMIT_MAX;
+  const now = Math.floor(Date.now() / 1000);
 
-  if (current >= limit) {
-    return false; // Rate limited
-  }
+  // Ventana FIJA: guardamos {count, resetAt}. El TTL apunta a resetAt, así la ventana
+  // se reinicia 60s después del PRIMER request, sin importar cuánta actividad haya.
+  // (Antes se reescribía el TTL en cada put -> bajo uso continuo la clave nunca expiraba
+  //  y bloqueaba tras 100 acciones aunque estuvieran repartidas en minutos.)
+  let count = 0, resetAt = now + RATE_LIMIT_WINDOW;
+  const raw = await env.COTIZACIONES.get(key);
+  if (raw) { try { const o = JSON.parse(raw); if (o.resetAt > now) { count = o.count; resetAt = o.resetAt; } } catch (e) {} }
 
-  await env.COTIZACIONES.put(key, String(current + 1), { expirationTtl: RATE_LIMIT_WINDOW });
+  if (count >= limit) return false; // Rate limited
+
+  const ttl = Math.max(1, resetAt - now);
+  await env.COTIZACIONES.put(key, JSON.stringify({ count: count + 1, resetAt }), { expirationTtl: ttl });
   return true;
 }
 
