@@ -1004,17 +1004,24 @@ function irAlHome(){
     <!-- AGREGAR EGRESO -->
     <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem">
       <select id="egreso-material" onchange="seleccionarMaterialEgreso()" style="flex:1;min-width:200px;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
-        <option value="">— Elige material —</option>
-        <option data-cost="p-lc">Poste de línea — concreto</option>
-        <option data-cost="p-lw">Poste de línea — madera</option>
-        <option data-cost="p-e1">Poste esquinero — concreto</option>
-        <option data-cost="p-pw">Alambre de púa (por rollo)</option>
-        <option data-cost="p-ce">Cemento (por tonelada)</option>
-        <option data-cost="p-ar">Arena (m³)</option>
-        <option data-cost="p-gr">Grava / piedrín (m³)</option>
-        <option data-cost="p-va">Varilla 3/8&quot; (6 m)</option>
-        <option data-cost="p-al">Alambrón 1/4&quot; (kg)</option>
-        <option data-cost="p-gp">Grampas / grapas (kg)</option>
+        <option value="">— Elige egreso —</option>
+        <optgroup label="Mano de obra / Servicio">
+          <option data-textcost="r-cm" data-lump="1">Mano de obra (pago al trabajador)</option>
+          <option data-cost="subcontrato-precio" data-lump="1">M.O. + materiales (servicio completo)</option>
+        </optgroup>
+        <optgroup label="Materiales">
+          <option data-cost="p-lc">Poste de línea — concreto</option>
+          <option data-cost="p-lw">Poste de línea — madera</option>
+          <option data-cost="p-e1">Poste esquinero — concreto</option>
+          <option data-cost="p-pw">Alambre de púa (por rollo)</option>
+          <option data-cost="p-malla">Malla ciclónica galvanizada (por rollo)</option>
+          <option data-cost="p-ce">Cemento (por tonelada)</option>
+          <option data-cost="p-ar">Arena (m³)</option>
+          <option data-cost="p-gr">Grava / piedrín (m³)</option>
+          <option data-cost="p-va">Varilla 3/8&quot; (6 m)</option>
+          <option data-cost="p-al">Alambrón 1/4&quot; (kg)</option>
+          <option data-cost="p-gp">Grampas / grapas (kg)</option>
+        </optgroup>
         <option value="__otro__">Otro (especificar)…</option>
       </select>
       <input type="text" id="egreso-desc" placeholder="Especifica el material" style="display:none;flex:1;min-width:160px;padding:.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
@@ -3282,10 +3289,17 @@ function seleccionarMaterialEgreso(){
   descInput.style.display='none';
   const opt=sel.options[sel.selectedIndex];
   const costId=opt?opt.dataset.cost:'';
+  const textId=opt?opt.dataset.textcost:''; // pre-llena desde un texto "$…" ya calculado (p.ej. M.O.)
   if(costId){
     const v=parseFloat((document.getElementById(costId)||{}).value);
     unitInput.value=(!isNaN(v)&&v>0)?v:'';
+  } else if(textId){
+    const t=(document.getElementById(textId)?.textContent||'').replace(/[$,]/g,'').trim();
+    const v=parseFloat(t);
+    unitInput.value=(!isNaN(v)&&v>0)?v:'';
   }
+  // Egresos de monto único (mano de obra / servicio): cantidad = 1 automática.
+  if(opt && opt.dataset.lump){ document.getElementById('egreso-cant').value=1; }
 }
 
 function agregarEgreso(){
