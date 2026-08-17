@@ -510,6 +510,7 @@ function metaOf(rec, prev = {}) {
     cliente: rec.resumenCliente || '',
     total: rec.resumenTotal || '',
     estatus: rec.estatus || 'pendiente',
+    estadoObra: rec.estadoObra || 'pendiente', // posteado/cercado: 'pendiente' | 'realizada'
     guardadoEn: rec.guardadoEn || '',
     actualizadoEn: rec.actualizadoEn || '',
     estadoPago: f.estadoPago,
@@ -1068,6 +1069,25 @@ export default {
         if (!raw) return json({ error: 'No encontrada' }, 404, origin);
         const ac = JSON.parse(raw).aceptacionCliente || null;
         return json({ aceptacion: ac ? { firma: ac.firma || '', comprobante: ac.comprobante || '', nombre: ac.nombre || '', aceptadoEn: ac.aceptadoEn || '' } : null }, 200, origin);
+      }
+
+      // ── ESTADO DE OBRA (posteado/cercado): 'pendiente' | 'realizada' ──
+      const mObra = path.match(/^\/api\/cotizaciones\/([^/]+)\/estado-obra$/);
+      if (request.method === 'POST' && mObra) {
+        const folio = mObra[1];
+        const raw = await env.COTIZACIONES.get(KV_PREFIX + folio);
+        if (!raw) return json({ error: 'No encontrada' }, 404, origin);
+        const rec = JSON.parse(raw);
+        const canEditAll = await hasPermission(user, PERMISSIONS.EDIT_ALL);
+        const canEditOwn = await hasPermission(user, PERMISSIONS.EDIT_OWN);
+        if (!canEditAll && (!canEditOwn || rec.creador !== user.email)) return json({ error: 'Sin permisos' }, 403, origin);
+        const body = await request.json().catch(() => ({}));
+        const estado = body.estado === 'realizada' ? 'realizada' : 'pendiente';
+        rec.estadoObra = estado;
+        rec.obraActualizadaEn = new Date().toISOString();
+        await putRecord(env, folio, rec); // reescribe metadata (incluye estadoObra); no toca total ni pagos
+        await createAuditLog(env, user, 'ESTADO_OBRA', folio, { estado });
+        return json({ ok: true, estadoObra: estado }, 200, origin);
       }
 
       // ── GENERAR RECIBO para una cotización pagada sin recibo ─────────
