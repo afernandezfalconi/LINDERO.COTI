@@ -98,8 +98,10 @@ async function checkRateLimit(env, ip, isAuth = false) {
 
   if (count >= limit) return false; // Rate limited
 
-  const ttl = Math.max(1, resetAt - now);
-  await env.COTIZACIONES.put(key, JSON.stringify({ count: count + 1, resetAt }), { expirationTtl: ttl });
+  // El reinicio de la ventana lo decide `resetAt` en el VALOR, no el TTL. El TTL es solo
+  // limpieza eventual de la clave; KV exige expirationTtl >= 60, así que usamos el mínimo.
+  // (Un TTL menor a 60 lanzaba excepción en el put -> 500 sin CORS -> "Sin conexión".)
+  await env.COTIZACIONES.put(key, JSON.stringify({ count: count + 1, resetAt }), { expirationTtl: RATE_LIMIT_WINDOW });
   return true;
 }
 
