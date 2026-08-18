@@ -1070,6 +1070,50 @@ export default {
         return json({ items, cursor: res.list_complete ? null : res.cursor }, 200, origin);
       }
 
+      // ── FINANZAS: ingresos + egresos de TODAS las cotizaciones en UNA request ──
+      // Antes el front hacía N+1 (lista + un GET por cotización, con imágenes) -> lento
+      // y tumbaba el rate-limit. Aquí se arma en el Worker: metadata (barato) para los
+      // ingresos/banderas + un get por registro SOLO para egresos y monto de pago (sin
+      // imágenes). El comprobante se abre on-demand al hacer clic en el front.
+      if (request.method === 'GET' && path === '/api/finanzas') {
+        if (!(await hasPermission(user, PERMISSIONS.VIEW_COTIZACIONES))) {
+          return json({ error: 'Sin permisos' }, 403, origin);
+        }
+        const keys = [];
+        let cur;
+        do {
+          const r = await env.COTIZACIONES.list({ prefix: KV_PREFIX, cursor: cur, limit: 1000 });
+          keys.push(...r.keys);
+          cur = r.list_complete ? null : r.cursor;
+        } while (cur);
+        const items = await Promise.all(keys.map(async k => {
+          const meta = k.metadata || {};
+          const folio = k.name.slice(KV_PREFIX.length);
+          let egresos = [], pago = null;
+          try {
+            const raw = await env.COTIZACIONES.get(k.name);
+            if (raw) { const rec = JSON.parse(raw); egresos = Array.isArray(rec.egresos) ? rec.egresos : []; pago = rec.pago || null; }
+          } catch (e) {}
+          const montoPagado = meta.montoPagado || (pago && pago.montoRecibido) || 0;
+          const paid = montoPagado > 0 || (pago && pago.pagado);
+          return {
+            folio,
+            cliente: meta.cliente || '',
+            total: meta.total || '',
+            estatus: meta.estatus || 'pendiente',
+            // banderas de comprobante (sin traer la imagen; se abre on-demand al hacer clic)
+            tieneCompVendedor: !!meta.tieneCompVendedor || !!(pago && pago.comprobante),
+            tieneCompCliente: !!meta.tieneCompCliente,
+            data: {
+              pago: paid ? { pagado: true, montoRecibido: montoPagado, fechaPago: meta.fechaPago || (pago && pago.fechaPago) || '', comprobante: '' } : null,
+              aceptacionCliente: { comprobante: '' },
+              egresos
+            }
+          };
+        }));
+        return json({ items }, 200, origin);
+      }
+
       // ── ACEPTACIÓN DEL CLIENTE (on-demand: firma + comprobante) ──────
       const mAcep = path.match(/^\/api\/cotizaciones\/([^/]+)\/aceptacion$/);
       if (request.method === 'GET' && mAcep) {

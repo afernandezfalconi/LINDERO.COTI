@@ -3371,21 +3371,10 @@ async function abrirFinanzas(){
   }
 
   try{
-    const resp=await apiFetch('/api/cotizaciones');
-    const items=(resp.items||[]).map(it=>({key:it.id, cliente:it.cliente, folio:it.folio, total:it.total, estatus:it.estatus||'pendiente', tieneCompVendedor:it.tieneCompVendedor, tieneCompCliente:it.tieneCompCliente}));
-
-    // Obtener datos completos (incluye información de pago)
-    const datosCompletos=[];
-    for(const item of items){
-      try{
-        const data=await apiFetch('/api/cotizaciones/'+encodeURIComponent(item.key));
-        datosCompletos.push({...item, data});
-      }catch(e){
-        console.warn('Error cargando cotización '+item.key, e);
-      }
-    }
-
-    finanzasDataCache=datosCompletos;
+    // Una sola request: el Worker arma ingresos+egresos de todas las cotizaciones
+    // (antes se hacía un GET por cotización = N+1 lento que tumbaba el rate-limit).
+    const resp=await apiFetch('/api/finanzas');
+    finanzasDataCache=resp.items||[];
 
     // Reset filtros
     document.getElementById('filtro-rapido-finanzas').value='todo';
@@ -3454,20 +3443,24 @@ function formatDate(d){
 // Abre el comprobante de una cotización pagada desde Finanzas. Busca en todas las
 // fuentes: data.pago (viejo), aceptacionCliente (cliente) y el recibo (on-demand).
 async function verComprobanteFinanzas(folio){
-  const c=(finanzasDataCache||[]).find(x=>x.folio===folio);
-  if(!c){ toast('No se encontró la cotización', false); return; }
-  if(c.data&&c.data.pago&&c.data.pago.comprobante){ verArchivo(c.data.pago.comprobante); return; }
-  if(c.data&&c.data.aceptacionCliente&&c.data.aceptacionCliente.comprobante){ verArchivo(c.data.aceptacionCliente.comprobante); return; }
+  // El cache de Finanzas es liviano (sin imágenes); el comprobante se trae on-demand.
   try{
-    if(c.tieneCompVendedor){ await centroVerCompVendedor(folio); return; }
-    if(c.tieneCompCliente){ await centroVerCompCliente(folio); return; }
+    // Comprobante viejo en data.pago o del cliente (aceptación): traer el registro de ESTE folio
+    const full=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio));
+    if(full&&full.pago&&full.pago.comprobante){ verArchivo(full.pago.comprobante); return; }
+    if(full&&full.aceptacionCliente&&full.aceptacionCliente.comprobante){ verArchivo(full.aceptacionCliente.comprobante); return; }
+  }catch(e){}
+  try{
+    const c=(finanzasDataCache||[]).find(x=>x.folio===folio);
+    if(c&&c.tieneCompVendedor){ await centroVerCompVendedor(folio); return; } // comprobante subido en un recibo/pago
+    if(c&&c.tieneCompCliente){ await centroVerCompCliente(folio); return; }
   }catch(e){ toast('No se pudo abrir el comprobante: '+((e&&e.message)||e), false); return; }
   toast('No se encontró el comprobante', false);
 }
 
 function filtrarFinanzas(){
   if(!finanzasDataCache){
-    document.getElementById('finanzas-content').innerHTML='<div style="color:var(--red)">Error: sin datos cacheados</div>';
+    document.getElementById('finanzas-content').innerHTML='<div style="color:var(--muted);text-align:center">Cargando datos… <button class="tb" onclick="abrirFinanzas()">Reintentar</button></div>';
     return;
   }
 
