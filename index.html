@@ -182,7 +182,7 @@ select option{background:var(--bg3)}
      botón PDF vive dentro del modal de compartir), no debe salir sobre la cotización. */
   #modal-overlay,#modal-exportar,#modal-landing,#modal-comp-overlay,
   #modal-finanzas-overlay,#modal-admin,#modal-auditoria,#providers-modal,#edit-prov-modal,
-  #chart-modal,#modal-pago,#toast{ display:none !important; }
+  #chart-modal,#modal-pago,#modal-elige-comp,#toast{ display:none !important; }
 
   /* Membrete compacto para que TODO (incluida la firma) entre en 1 sola hoja. */
   #print-letterhead{display:block !important;color:#222;background:#fff;padding:0;font-family:var(--fb);
@@ -2859,7 +2859,33 @@ async function centroVerCompVendedor(folio){
 }
 async function centroVerCompCliente(folio){
   const r=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/aceptacion');
-  if(r.aceptacion && r.aceptacion.comprobante) verArchivo(r.aceptacion.comprobante); else toast('El cliente no subió comprobante', false);
+  const lista=comprobantesDeAceptacion(r&&r.aceptacion);
+  if(!lista.length){ toast('El cliente no subió comprobante', false); return; }
+  if(lista.length===1){ verArchivo(lista[0]); return; }
+  elegirComprobante(lista, 'Comprobantes del cliente — '+folio);
+}
+// Normaliza los comprobantes del cliente (array nuevo o el singular viejo) a un array de data-urls.
+function comprobantesDeAceptacion(ac){
+  if(!ac) return [];
+  if(Array.isArray(ac.comprobantes)&&ac.comprobantes.length) return ac.comprobantes.map(c=>c.archivo||c).filter(Boolean);
+  return ac.comprobante?[ac.comprobante]:[];
+}
+// Modal chico para elegir cuál comprobante abrir cuando hay varios.
+function elegirComprobante(lista, titulo){
+  window.__compList=lista;
+  const ex=document.getElementById('modal-elige-comp'); if(ex) ex.remove();
+  const ov=document.createElement('div');
+  ov.id='modal-elige-comp';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1300;display:flex;align-items:center;justify-content:center';
+  ov.onclick=function(e){ if(e.target===ov) ov.remove(); };
+  let botones='';
+  lista.forEach(function(_,i){ botones+='<button class="tb" style="width:100%;justify-content:center;margin-bottom:.4rem" onclick="verArchivo(window.__compList['+i+'])"><i class="ti ti-file-invoice"></i> Comprobante '+(i+1)+'</button>'; });
+  ov.innerHTML='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:1.25rem;max-width:360px;width:90%">'
+    +'<h3 style="font-family:var(--fh);font-weight:600;margin-bottom:.75rem;font-size:14px">'+escHtml(titulo||'Comprobantes')+'</h3>'
+    +botones
+    +'<button class="tb ghost" style="width:100%;justify-content:center;margin-top:.5rem" onclick="document.getElementById(\'modal-elige-comp\').remove()">Cerrar</button>'
+    +'</div>';
+  document.body.appendChild(ov);
 }
 async function centroFirma(folio){
   const r=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/aceptacion');
@@ -3265,7 +3291,9 @@ async function verComprobanteFinanzas(folio){
     // Comprobante viejo en data.pago o del cliente (aceptación): traer el registro de ESTE folio
     const full=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio));
     if(full&&full.pago&&full.pago.comprobante){ verArchivo(full.pago.comprobante); return; }
-    if(full&&full.aceptacionCliente&&full.aceptacionCliente.comprobante){ verArchivo(full.aceptacionCliente.comprobante); return; }
+    const lista=comprobantesDeAceptacion(full&&full.aceptacionCliente);
+    if(lista.length===1){ verArchivo(lista[0]); return; }
+    if(lista.length>1){ elegirComprobante(lista, 'Comprobantes del cliente — '+folio); return; }
   }catch(e){}
   try{
     const c=(finanzasDataCache||[]).find(x=>x.folio===folio);

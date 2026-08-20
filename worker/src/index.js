@@ -501,7 +501,7 @@ function computeFlags(rec, receipts) {
   const ac = (rec && rec.aceptacionCliente) || null;
   const flags = {
     estadoPago, montoPagado, saldo, fechaPago,
-    tieneCompCliente: !!(ac && ac.comprobante),
+    tieneCompCliente: !!(ac && (ac.comprobante || (Array.isArray(ac.comprobantes) && ac.comprobantes.length))),
     firmada: !!(ac && ac.firma),
   };
   if (Array.isArray(receipts)) {
@@ -666,26 +666,38 @@ export default {
       let body;
       try { body = await request.json(); } catch (e) { return json({ error: 'Datos inválidos' }, 400, origin); }
       const firma = (typeof body.firma === 'string' && body.firma.startsWith('data:image/')) ? body.firma : '';
-      const comprobante = (typeof body.comprobante === 'string' && /^data:(image\/|application\/pdf)/.test(body.comprobante)) ? body.comprobante : '';
       const nombre = (typeof body.nombre === 'string' ? body.nombre : '').trim().slice(0, 120);
-      if (!firma && !comprobante) return json({ error: 'Firma la cotización o adjunta tu comprobante' }, 400, origin);
-      // Límite defensivo para no exceder el valor máximo de KV (25 MB) ni inflar el registro.
-      if ((firma.length + comprobante.length) > 6_000_000) return json({ error: 'El comprobante es muy grande (máx ~4 MB)' }, 413, origin);
+      const esComp = s => typeof s === 'string' && /^data:(image\/|application\/pdf)/.test(s);
+      // Comprobantes: acepta un array (varias transferencias) y también el 'comprobante' singular (compat).
+      const nuevos = [];
+      if (Array.isArray(body.comprobantes)) for (const c of body.comprobantes) if (esComp(c)) nuevos.push(c);
+      if (esComp(body.comprobante)) nuevos.push(body.comprobante);
+      if (!firma && nuevos.length === 0) return json({ error: 'Firma la cotización o adjunta tu comprobante' }, 400, origin);
 
       const recRaw = await env.COTIZACIONES.get(KV_PREFIX + folio);
       if (!recRaw) return json({ error: 'Cotización no encontrada' }, 404, origin);
       const rec = JSON.parse(recRaw);
-      rec.aceptacionCliente = {
-        firma,
-        comprobante,
-        nombre,
-        aceptadoEn: new Date().toISOString(),
-        ip
-      };
-      rec.actualizadoEn = new Date().toISOString();
-      await putRecord(env, folio, rec);   // persiste rec + metadata (antes hacía put sin metadata)
+      const now = new Date().toISOString();
+      const ac = rec.aceptacionCliente || {};
+      // Migrar el modelo viejo (comprobante singular) a array de {archivo, fecha}.
+      if (!Array.isArray(ac.comprobantes)) ac.comprobantes = ac.comprobante ? [{ archivo: ac.comprobante, fecha: ac.aceptadoEn || now }] : [];
+      // Firma y nombre se fijan la PRIMERA vez; envíos posteriores solo anexan comprobantes.
+      if (firma && !ac.firma) ac.firma = firma;
+      if (nombre && !ac.nombre) ac.nombre = nombre;
+      for (const c of nuevos) ac.comprobantes.push({ archivo: c, fecha: now });
+      // Topes defensivos: cantidad y tamaño total (KV máx 25 MB por valor).
+      if (ac.comprobantes.length > 20) return json({ error: 'Demasiados comprobantes (máx 20)' }, 400, origin);
+      const totalBytes = (ac.firma ? ac.firma.length : 0) + ac.comprobantes.reduce((s, c) => s + ((c.archivo || '').length), 0);
+      if (totalBytes > 20_000_000) return json({ error: 'Los comprobantes ocupan demasiado espacio. Contacta al vendedor.' }, 413, origin);
+      ac.comprobante = ac.comprobantes[0] ? ac.comprobantes[0].archivo : ''; // legacy: el primero
+      if (!ac.aceptadoEn) ac.aceptadoEn = now;
+      ac.nombre = ac.nombre || '';
+      ac.ip = ip;
+      rec.aceptacionCliente = ac;
+      rec.actualizadoEn = now;
+      await putRecord(env, folio, rec);   // persiste rec + metadata
       await refreshFlags(env, folio);     // actualiza banderas firmada/tieneCompCliente
-      return json({ ok: true, aceptadoEn: rec.aceptacionCliente.aceptadoEn }, 200, origin);
+      return json({ ok: true, aceptadoEn: ac.aceptadoEn, comprobantes: ac.comprobantes.length }, 200, origin);
     }
 
     // ── LANDING PAGE PÚBLICA (con token, sin auth) ────────────────────
@@ -774,27 +786,35 @@ export default {
       // Sección de aceptación del cliente: si ya aceptó, se muestra confirmación; si no, el formulario.
       const ya = rec.aceptacionCliente;
       let aceptacionHtml;
-      if (ya && (ya.firma || ya.comprobante)) {
+      const nComp = ya && Array.isArray(ya.comprobantes) ? ya.comprobantes.length : (ya && ya.comprobante ? 1 : 0);
+      if (ya && (ya.firma || nComp)) {
         const fechaAc = ya.aceptadoEn ? new Date(ya.aceptadoEn).toLocaleString('es-MX') : '';
         aceptacionHtml = `
     <div class="aceptacion aceptada">
       <h3>✓ Cotización aceptada</h3>
       <p>Recibimos tu aceptación${ya.nombre ? ' de <strong>' + escL(ya.nombre) + '</strong>' : ''}${fechaAc ? ' el ' + escL(fechaAc) : ''}.</p>
       ${ya.firma ? `<div style="margin-top:.6rem"><img src="${ya.firma}" alt="Firma" style="max-height:90px;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px"></div>` : ''}
-      ${ya.comprobante ? `<p style="color:#1d9e75;margin-top:.5rem">✓ Comprobante de pago recibido.</p>` : ''}
+      ${nComp ? `<p style="color:#1d9e75;margin-top:.5rem">✓ ${nComp} comprobante(s) de pago recibido(s).</p>` : ''}
+      <div style="margin-top:1rem;border-top:1px solid #cfe0d8;padding-top:1rem">
+        <label class="ac-lbl">¿Hiciste otra transferencia? Adjunta otro(s) comprobante(s) <span style="font-weight:400;color:#777">(imagen o PDF, máx 4 MB c/u)</span></label>
+        <input id="ac-file" class="ac-inp" type="file" accept="image/*,application/pdf" multiple>
+        <div id="ac-file-name" style="font-size:.85rem;color:#666;margin-top:.3rem"></div>
+        <button type="button" class="ac-btn" id="ac-enviar" onclick="acEnviar()">Enviar comprobante(s)</button>
+        <div id="ac-msg" style="margin-top:.8rem;font-size:.9rem"></div>
+      </div>
     </div>`;
       } else {
         aceptacionHtml = `
     <div class="aceptacion" id="ac-form">
       <h3>Aceptación del cliente</h3>
-      <p>Firma para aceptar esta cotización. Si ya realizaste el pago, adjunta tu comprobante (opcional).</p>
+      <p>Firma para aceptar esta cotización. Si ya realizaste el pago, adjunta tu(s) comprobante(s) (opcional).</p>
       <label class="ac-lbl">Nombre de quien firma</label>
       <input id="ac-nombre" class="ac-inp" type="text" value="${escL(rec.resumenCliente || '')}" placeholder="Tu nombre">
       <label class="ac-lbl">Firma <span style="font-weight:400;color:#777">(dibuja con el dedo o el mouse)</span></label>
       <div class="ac-canvas-wrap"><canvas id="ac-canvas" width="700" height="200"></canvas></div>
       <button type="button" class="ac-btn-sec" onclick="acLimpiar()">Limpiar firma</button>
-      <label class="ac-lbl">Comprobante de pago <span style="font-weight:400;color:#777">(opcional — imagen o PDF, máx 4 MB)</span></label>
-      <input id="ac-file" class="ac-inp" type="file" accept="image/*,application/pdf">
+      <label class="ac-lbl">Comprobante(s) de pago <span style="font-weight:400;color:#777">(opcional — imagen o PDF, máx 4 MB c/u; puedes elegir varios)</span></label>
+      <input id="ac-file" class="ac-inp" type="file" accept="image/*,application/pdf" multiple>
       <div id="ac-file-name" style="font-size:.85rem;color:#666;margin-top:.3rem"></div>
       <button type="button" class="ac-btn" id="ac-enviar" onclick="acEnviar()">Aceptar y enviar</button>
       <div id="ac-msg" style="margin-top:.8rem;font-size:.9rem"></div>
@@ -869,45 +889,50 @@ export default {
   <script>
   (function(){
     var canvas=document.getElementById('ac-canvas');
-    if(!canvas) return;
-    var ctx=canvas.getContext('2d');
-    ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#13241f';
-    var drawing=false, hasSig=false, last=null;
-    function pos(e){
-      var r=canvas.getBoundingClientRect();
-      var t=(e.touches&&e.touches[0])||e;
-      return { x:(t.clientX-r.left)*(canvas.width/r.width), y:(t.clientY-r.top)*(canvas.height/r.height) };
+    var hasSig=false;
+    if(canvas){
+      var ctx=canvas.getContext('2d');
+      ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#13241f';
+      var drawing=false, last=null;
+      var pos=function(e){
+        var r=canvas.getBoundingClientRect();
+        var t=(e.touches&&e.touches[0])||e;
+        return { x:(t.clientX-r.left)*(canvas.width/r.width), y:(t.clientY-r.top)*(canvas.height/r.height) };
+      };
+      var start=function(e){ e.preventDefault(); drawing=true; last=pos(e); };
+      var move=function(e){ if(!drawing)return; e.preventDefault(); var p=pos(e); ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); last=p; hasSig=true; };
+      var end=function(){ drawing=false; };
+      canvas.addEventListener('mousedown',start); canvas.addEventListener('mousemove',move); window.addEventListener('mouseup',end);
+      canvas.addEventListener('touchstart',start,{passive:false}); canvas.addEventListener('touchmove',move,{passive:false}); canvas.addEventListener('touchend',end);
+      window.acLimpiar=function(){ ctx.clearRect(0,0,canvas.width,canvas.height); hasSig=false; };
     }
-    function start(e){ e.preventDefault(); drawing=true; last=pos(e); }
-    function move(e){ if(!drawing)return; e.preventDefault(); var p=pos(e); ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); last=p; hasSig=true; }
-    function end(){ drawing=false; }
-    canvas.addEventListener('mousedown',start); canvas.addEventListener('mousemove',move); window.addEventListener('mouseup',end);
-    canvas.addEventListener('touchstart',start,{passive:false}); canvas.addEventListener('touchmove',move,{passive:false}); canvas.addEventListener('touchend',end);
-    window.acLimpiar=function(){ ctx.clearRect(0,0,canvas.width,canvas.height); hasSig=false; };
-    var fileData='';
+    var archivos=[];
     var fileInput=document.getElementById('ac-file');
-    fileInput.addEventListener('change',function(){
-      var f=fileInput.files&&fileInput.files[0]; var nm=document.getElementById('ac-file-name');
-      if(!f){ fileData=''; nm.textContent=''; return; }
-      if(f.size>4*1024*1024){ alert('El archivo supera 4 MB'); fileInput.value=''; fileData=''; nm.textContent=''; return; }
-      if(!(f.type.indexOf('image/')===0||f.type==='application/pdf')){ alert('Solo imagen o PDF'); fileInput.value=''; return; }
-      var rd=new FileReader(); rd.onload=function(ev){ fileData=ev.target.result; nm.textContent='Adjunto: '+f.name; }; rd.readAsDataURL(f);
+    if(fileInput) fileInput.addEventListener('change',function(){
+      var nm=document.getElementById('ac-file-name'); archivos=[]; nm.textContent='';
+      var fs=fileInput.files||[]; if(!fs.length) return;
+      var nombres=[];
+      for(var i=0;i<fs.length;i++){ (function(f){
+        if(f.size>4*1024*1024){ alert('El archivo "'+f.name+'" supera 4 MB'); return; }
+        if(!(f.type.indexOf('image/')===0||f.type==='application/pdf')){ alert('"'+f.name+'": solo imagen o PDF'); return; }
+        var rd=new FileReader(); rd.onload=function(ev){ archivos.push(ev.target.result); nombres.push(f.name); nm.textContent='Adjuntos ('+archivos.length+'): '+nombres.join(', '); }; rd.readAsDataURL(f);
+      })(fs[i]); }
     });
     window.acEnviar=function(){
       var msg=document.getElementById('ac-msg'); var btn=document.getElementById('ac-enviar');
-      var firma = hasSig ? canvas.toDataURL('image/png') : '';
-      if(!firma && !fileData){ msg.style.color='#c0392b'; msg.textContent='Firma o adjunta tu comprobante antes de enviar.'; return; }
-      btn.disabled=true; btn.textContent='Enviando...'; msg.style.color='#666'; msg.textContent='';
+      var firma = (canvas && hasSig) ? canvas.toDataURL('image/png') : '';
+      if(!firma && archivos.length===0){ msg.style.color='#c0392b'; msg.textContent='Firma o adjunta al menos un comprobante antes de enviar.'; return; }
+      var txt=btn.textContent; btn.disabled=true; btn.textContent='Enviando...'; msg.style.color='#666'; msg.textContent='';
       var nombre=(document.getElementById('ac-nombre')||{}).value||'';
       var base=location.pathname; if(base.charAt(base.length-1)==='/') base=base.slice(0,-1);
       fetch(base+'/aceptar',{
         method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ firma:firma, comprobante:fileData, nombre:nombre })
+        body:JSON.stringify({ firma:firma, comprobantes:archivos, nombre:nombre })
       }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
         .then(function(res){
-          if(res.ok){ document.getElementById('ac-form').innerHTML='<h3>✓ ¡Gracias!</h3><p>Recibimos tu aceptación'+(fileData?' y tu comprobante de pago':'')+'. Nos pondremos en contacto contigo.</p>'; }
-          else { btn.disabled=false; btn.textContent='Aceptar y enviar'; msg.style.color='#c0392b'; msg.textContent=(res.d&&res.d.error)||'No se pudo enviar. Intenta de nuevo.'; }
-        }).catch(function(){ btn.disabled=false; btn.textContent='Aceptar y enviar'; msg.style.color='#c0392b'; msg.textContent='Error de conexión. Intenta de nuevo.'; });
+          if(res.ok){ msg.style.color='#1d9e75'; msg.textContent='✓ Recibido. Actualizando...'; setTimeout(function(){ location.reload(); }, 700); }
+          else { btn.disabled=false; btn.textContent=txt; msg.style.color='#c0392b'; msg.textContent=(res.d&&res.d.error)||'No se pudo enviar. Intenta de nuevo.'; }
+        }).catch(function(){ btn.disabled=false; btn.textContent=txt; msg.style.color='#c0392b'; msg.textContent='Error de conexión. Intenta de nuevo.'; });
     };
   })();
   </script>
@@ -1121,7 +1146,13 @@ export default {
         const raw = await env.COTIZACIONES.get(KV_PREFIX + mAcep[1]);
         if (!raw) return json({ error: 'No encontrada' }, 404, origin);
         const ac = JSON.parse(raw).aceptacionCliente || null;
-        return json({ aceptacion: ac ? { firma: ac.firma || '', comprobante: ac.comprobante || '', nombre: ac.nombre || '', aceptadoEn: ac.aceptadoEn || '' } : null }, 200, origin);
+        // comprobantes: array [{archivo,fecha}] (varias transferencias); compat con el singular viejo.
+        let comprobantes = [];
+        if (ac) {
+          if (Array.isArray(ac.comprobantes)) comprobantes = ac.comprobantes;
+          else if (ac.comprobante) comprobantes = [{ archivo: ac.comprobante, fecha: ac.aceptadoEn || '' }];
+        }
+        return json({ aceptacion: ac ? { firma: ac.firma || '', comprobante: ac.comprobante || '', comprobantes, nombre: ac.nombre || '', aceptadoEn: ac.aceptadoEn || '' } : null }, 200, origin);
       }
 
       // ── ESTADO DE OBRA (posteado/cercado): 'pendiente' | 'realizada' ──
