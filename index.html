@@ -2126,14 +2126,14 @@ function recopilarEstado(){
   // Ya no se lee de la (oculta) sección 8. Se preserva el data.pago existente al re-guardar.
   if(pagoActual) estado.pago=pagoActual;
 
-  // Egresos (costos de materiales)
-  if(egresos.length>0){
-    estado.egresos=egresos.map(eg=>({
-      desc:eg.desc,
-      cant:eg.cant,
-      unitario:eg.unitario
-    }));
-  }
+  // Egresos (costos de materiales). SIEMPRE se incluye (aunque esté vacío) para que
+  // borrar todos los egresos sí se guarde; antes, con [] no se enviaba el campo y el
+  // servidor conservaba los viejos por el merge {...prev, ...body}.
+  estado.egresos=egresos.map(eg=>({
+    desc:eg.desc,
+    cant:eg.cant,
+    unitario:eg.unitario
+  }));
 
   // Monto negociado
   const montoNegociado=document.getElementById('monto-negociado')?.value;
@@ -3377,7 +3377,7 @@ function filtrarFinanzas(){
 
   // Filtrar egresos (todas las cotizaciones con egresos registrados)
   const egresosData=finanzasDataCache
-    .filter(c=>c.data.egresos&&c.data.egresos.length>0)
+    .filter(c=>c.data.egresos&&c.data.egresos.length>0 && c.estatus!=='cancelada' && c.estatus!=='rechazada')
     .flatMap(c=>
       c.data.egresos.map(eg=>({
         folio:c.folio,
