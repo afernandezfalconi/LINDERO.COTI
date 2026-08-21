@@ -3585,9 +3585,14 @@ async function cargarListaUsuarios(){
     const tbody=document.getElementById('users-tbody');
     tbody.innerHTML='';
     data.items.forEach(u=>{
+      const rolActual=u.rol||'VIEWER';
+      const esAdminPrincipal=(u.email||'').toLowerCase()==='afernandezfalconi@gmail.com';
+      const rolCell=esAdminPrincipal
+        ? `<strong title="El admin principal no se puede cambiar">${rolActual}</strong>`
+        : `<select onchange="cambiarRolUsuario('${u.email}', this.value)" style="padding:.3rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.85rem">${['VIEWER','EDITOR','ADMIN'].map(r=>`<option value="${r}"${r===rolActual?' selected':''}>${r}</option>`).join('')}</select>`;
       const row=`<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:0.75rem">${u.email}</td>
-        <td>${u.rol||'VIEWER'}</td>
+        <td style="text-align:center">${rolCell}</td>
         <td>${new Date(u.creadoEn).toLocaleDateString('es-MX')}</td>
         <td><button class="tb" onclick="fijarPassword('${u.email}')" style="font-size:0.8rem;padding:0.35rem 0.6rem"><i class="ti ti-key" aria-hidden="true"></i>Contraseña</button> <span title="${u.hasPassword?'Contraseña asignada':'Sin contraseña — usa la inicial'}" style="font-size:0.85rem;color:${u.hasPassword?'var(--accent)':'var(--muted)'}">${u.hasPassword?'●':'○'}</span></td>
       </tr>`;
@@ -3622,6 +3627,22 @@ async function agregarUsuario(){
   }catch(e){
     alert('Error: '+e.message);
   }
+}
+
+async function cambiarRolUsuario(email, nuevoRol){
+  if(!confirm('¿Cambiar el rol de '+email+' a '+nuevoRol+'?\n\nSus permisos se ajustan de inmediato.')){ await cargarListaUsuarios(); return; }
+  const token=obtenerToken();
+  const user=obtenerUsuarioActual();
+  try{
+    const resp=await fetch(API_BASE+'/api/users/set-role', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
+      body:JSON.stringify({email, role:nuevoRol})
+    });
+    if(!resp.ok){ const e=await resp.json().catch(()=>({})); throw new Error(e.error||('HTTP '+resp.status)); }
+    await cargarListaUsuarios();
+    toast('✓ '+email+' ahora es '+nuevoRol, true);
+  }catch(e){ alert('Error: '+e.message); await cargarListaUsuarios(); } // recarga = revierte el selector al valor real
 }
 
 async function fijarPassword(email){

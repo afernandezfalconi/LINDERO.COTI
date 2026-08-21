@@ -1457,6 +1457,26 @@ export default {
         return json({ message: 'Contraseña actualizada', email: targetEmail }, 200, origin);
       }
 
+      // Cambiar el ROL de un usuario (solo admin). Recalcula también sus permisos.
+      if (request.method === 'POST' && path === '/api/users/set-role') {
+        const body = await request.json();
+        const targetEmail = (body.email || '').toLowerCase();
+        const role = body.role || '';
+        if (!targetEmail || !ROLES[role]) return json({ error: 'Email y rol válido requeridos' }, 400, origin);
+        if (targetEmail === ADMIN_EMAIL) return json({ error: 'No se puede cambiar el rol del administrador principal' }, 400, origin);
+        const targetData = await env.COTIZACIONES.get(USERS_PREFIX + targetEmail);
+        if (!targetData) return json({ error: 'Usuario no encontrado' }, 404, origin);
+        const target = JSON.parse(targetData);
+        const rolAnterior = target.rol;
+        target.rol = role;
+        target.permissions = ROLES[role];
+        target.rolCambiadoEn = new Date().toISOString();
+        target.rolCambiadoPor = user.email;
+        await env.COTIZACIONES.put(USERS_PREFIX + targetEmail, JSON.stringify(target));
+        await createAuditLog(env, user, 'SET_ROLE', targetEmail, { de: rolAnterior, a: role });
+        return json({ ok: true, email: targetEmail, rol: role }, 200, origin);
+      }
+
       if (request.method === 'GET' && path === '/api/users') {
         const out = [];
         let cursor;
