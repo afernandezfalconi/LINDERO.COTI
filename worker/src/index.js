@@ -149,6 +149,12 @@ async function hasPermission(user, perm) {
   return (user.permissions & perm) !== 0;
 }
 
+// Admin = el admin principal (por email) O cualquier usuario con rol ADMIN.
+// Así, promover a alguien a ADMIN desde el panel le da poderes reales de admin.
+function isAdmin(user) {
+  return !!user && (user.email === ADMIN_EMAIL || user.rol === 'ADMIN');
+}
+
 async function createAuditLog(env, user, action, resource, details = {}) {
   const timestamp = new Date().toISOString();
   const auditEntry = {
@@ -1400,7 +1406,7 @@ export default {
       }
 
       // ── GESTIÓN DE USUARIOS (solo admin) ─────────────────────────────
-      if (path.startsWith('/api/users') && user.email !== ADMIN_EMAIL) {
+      if (path.startsWith('/api/users') && !isAdmin(user)) {
         return json({ error: 'Solo admin' }, 403, origin);
       }
 
@@ -1532,7 +1538,7 @@ export default {
       }
 
       if (request.method === 'POST' && path === '/api/providers') {
-        if (user.email !== ADMIN_EMAIL) {
+        if (!isAdmin(user)) {
           return json({ error: 'Solo admin puede crear proveedores' }, 403, origin);
         }
 
@@ -1545,7 +1551,7 @@ export default {
       }
 
       if (request.method === 'PUT' && path.match(/^\/api\/providers\/(\d+)$/)) {
-        if (user.email !== ADMIN_EMAIL) {
+        if (!isAdmin(user)) {
           return json({ error: 'Solo admin puede editar proveedores' }, 403, origin);
         }
 
@@ -1559,7 +1565,7 @@ export default {
       }
 
       if (request.method === 'POST' && path.match(/^\/api\/providers\/(\d+)\/price$/)) {
-        if (user.email !== ADMIN_EMAIL) {
+        if (!isAdmin(user)) {
           return json({ error: 'Solo admin puede actualizar precios' }, 403, origin);
         }
 
@@ -1580,7 +1586,7 @@ export default {
       }
 
       if (request.method === 'DELETE' && path.match(/^\/api\/providers\/(\d+)$/)) {
-        if (user.email !== ADMIN_EMAIL) {
+        if (!isAdmin(user)) {
           return json({ error: 'Solo admin puede eliminar proveedores' }, 403, origin);
         }
 

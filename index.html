@@ -182,7 +182,7 @@ select option{background:var(--bg3)}
      botón PDF vive dentro del modal de compartir), no debe salir sobre la cotización. */
   #modal-overlay,#modal-exportar,#modal-landing,#modal-comp-overlay,
   #modal-finanzas-overlay,#modal-admin,#modal-auditoria,#providers-modal,#edit-prov-modal,
-  #chart-modal,#modal-pago,#modal-elige-comp,#toast{ display:none !important; }
+  #chart-modal,#modal-pago,#modal-elige-comp,#modal-admin-hub,#toast{ display:none !important; }
 
   /* Membrete compacto para que TODO (incluida la firma) entre en 1 sola hoja. */
   #print-letterhead{display:block !important;color:#222;background:#fff;padding:0;font-family:var(--fb);
@@ -374,9 +374,7 @@ function irAlHome(){
     <button class="tb" onclick="abrirListaCotizaciones()"><i class="ti ti-folder" aria-hidden="true"></i>Mis cotizaciones</button>
     <button class="tb" onclick="abrirCentro()"><i class="ti ti-layout-dashboard" aria-hidden="true"></i>Centro</button>
     <button class="tb" onclick="abrirFinanzas()"><i class="ti ti-cash" aria-hidden="true"></i>Finanzas</button>
-    <button class="tb" id="menu-proveedores" style="display:none" onclick="abrirProveedores()"><i class="ti ti-building-factory-2" aria-hidden="true"></i>Proveedores</button>
-    <button class="tb" id="menu-usuarios" style="display:none" onclick="abrirPanelAdmin()"><i class="ti ti-users" aria-hidden="true"></i>Usuarios</button>
-    <button class="tb" id="menu-auditoria" style="display:none" onclick="abrirAuditoria()"><i class="ti ti-chart-bar" aria-hidden="true"></i>Auditoría</button>
+    <button class="tb" id="menu-admin" style="display:none" onclick="abrirAdminHub()"><i class="ti ti-settings" aria-hidden="true"></i>Admin</button>
     <button class="tb" data-perm="CREATE" onclick="nuevaCotizacion()"><i class="ti ti-plus" aria-hidden="true"></i>Nueva</button>
     <button class="tb ok" id="btn-guardar" onclick="guardarCotizacion()"><i class="ti ti-device-floppy" aria-hidden="true"></i>Guardar cotización</button>
     <div style="font-size:12px;text-align:right;padding:0 1rem;border-right:1px solid var(--border);min-width:150px">
@@ -3550,14 +3548,10 @@ function actualizarUIPermisos(user){
     el.disabled=!(user.permissions&PERMISSIONS.CREATE_COTIZACIONES);
   });
 
-  const menuProveedores=document.getElementById('menu-proveedores');
-  if(menuProveedores) menuProveedores.style.display=user.email==='afernandezfalconi@gmail.com'?'block':'none';
-
-  const menuAdmin=document.getElementById('menu-usuarios');
-  if(menuAdmin) menuAdmin.style.display=user.email==='afernandezfalconi@gmail.com'?'block':'none';
-
-  const menuAudit=document.getElementById('menu-auditoria');
-  if(menuAudit) menuAudit.style.display=((user.permissions&PERMISSIONS.VIEW_AUDIT)!==0||user.email==='afernandezfalconi@gmail.com')?'block':'none';
+  // Un solo botón "Admin" (hub) visible para ADMIN (rol o admin principal)
+  const esAdmin=(user.rol==='ADMIN')||user.email==='afernandezfalconi@gmail.com';
+  const menuAdminBtn=document.getElementById('menu-admin');
+  if(menuAdminBtn) menuAdminBtn.style.display=esAdmin?'block':'none';
 
   // Insignia de solo lectura para VIEWER (sin permiso de crear/editar)
   const tieneCreate=(user.permissions&PERMISSIONS.CREATE_COTIZACIONES)!==0;
@@ -3575,9 +3569,39 @@ function actualizarUIPermisos(user){
   actualizarBotonGuardar(); // el botón guardar refleja el permiso desde el login
 }
 
+// ── PANEL DE ADMINISTRADOR (hub) ──────────────────────────────────
+// Un solo punto de entrada para todo lo de admin: usuarios, proveedores,
+// auditoría (y luego, solicitudes de desbloqueo). Solo visible para ADMIN.
+function abrirAdminHub(){
+  if(!esAdminActual()){ alert('Solo el administrador'); return; }
+  const ex=document.getElementById('modal-admin-hub'); if(ex) ex.remove();
+  const card=(icon,titulo,desc,onclick)=>`
+    <button onclick="${onclick}" style="text-align:left;display:flex;gap:.9rem;align-items:flex-start;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:1rem;cursor:pointer;color:var(--text);width:100%">
+      <i class="ti ${icon}" style="font-size:22px;color:var(--accent);margin-top:2px"></i>
+      <span><span style="display:block;font-weight:600;font-family:var(--fh)">${titulo}</span><span style="display:block;font-size:12px;color:var(--muted);margin-top:2px">${desc}</span></span>
+    </button>`;
+  const html=`<div id="modal-admin-hub" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this) cerrarAdminHub()">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;max-width:560px;width:92%;max-height:88vh;overflow:auto;padding:1.5rem">
+      <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:1.25rem">
+        <i class="ti ti-settings" style="font-size:20px;color:var(--accent)"></i>
+        <h2 style="margin:0;font-family:var(--fh)">Panel de Administrador</h2>
+        <button onclick="cerrarAdminHub()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1">✕</button>
+      </div>
+      <div style="display:grid;gap:.75rem">
+        ${card('ti-users','Usuarios','Crear usuarios, cambiar roles y contraseñas','cerrarAdminHub();abrirPanelAdmin()')}
+        ${card('ti-building-factory-2','Proveedores','Materiales, precios, subcontratistas y volatilidad','cerrarAdminHub();abrirProveedores()')}
+        ${card('ti-chart-bar','Auditoría','Bitácora de cambios: quién hizo qué y cuándo','cerrarAdminHub();abrirAuditoria()')}
+      </div>
+      <button class="btnp ghost" style="width:100%;margin-top:1.25rem" onclick="cerrarAdminHub()">Cerrar</button>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function cerrarAdminHub(){ const m=document.getElementById('modal-admin-hub'); if(m) m.remove(); }
+
 // FASE 2: PANEL ADMIN - GESTIÓN DE USUARIOS
 async function abrirPanelAdmin(){
-  if(obtenerUsuarioActual().email!=='afernandezfalconi@gmail.com'){
+  if(!esAdminActual()){
     alert('Solo admin');
     return;
   }
@@ -3807,7 +3831,7 @@ const CATALOGO_MATERIALES=[
 function labelMaterial(tipo){ const m=CATALOGO_MATERIALES.find(c=>c.tipo===tipo); return m?m.label:tipo; }
 
 async function abrirProveedores(){
-  if(obtenerUsuarioActual().email!=='afernandezfalconi@gmail.com'){
+  if(!esAdminActual()){
     alert('Solo admin');
     return;
   }
