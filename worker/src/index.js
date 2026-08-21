@@ -1180,6 +1180,27 @@ export default {
         return json({ ok: true, estadoObra: estado }, 200, origin);
       }
 
+      // ── ANULAR PAGO pegado (rec.pago viejo sin recibo) ───────────────
+      // Para cuando el pago quedó guardado directo en rec.pago (formato viejo) y no
+      // hay X para borrarlo. Deja rec.pago en 0 y refresca banderas. Si el pago está
+      // en recibos, esos se borran con su X (este endpoint es solo para el pago directo).
+      const mAnular = path.match(/^\/api\/cotizaciones\/([^/]+)\/anular-pago$/);
+      if (request.method === 'POST' && mAnular) {
+        const folio = mAnular[1];
+        const raw = await env.COTIZACIONES.get(KV_PREFIX + folio);
+        if (!raw) return json({ error: 'No encontrada' }, 404, origin);
+        const rec = JSON.parse(raw);
+        const canEditAll = await hasPermission(user, PERMISSIONS.EDIT_ALL);
+        const canEditOwn = await hasPermission(user, PERMISSIONS.EDIT_OWN);
+        if (!canEditAll && (!canEditOwn || rec.creador !== user.email)) return json({ error: 'Sin permisos' }, 403, origin);
+        rec.pago = { pagado: false, montoRecibido: 0, fechaPago: '' };
+        rec.actualizadoEn = new Date().toISOString();
+        await putRecord(env, folio, rec);
+        await refreshFlags(env, folio); // recomputa con recibos (fuente real)
+        await createAuditLog(env, user, 'ANULAR_PAGO', folio);
+        return json({ ok: true }, 200, origin);
+      }
+
       // ── GENERAR RECIBO para una cotización pagada sin recibo ─────────
       const mGenRec = path.match(/^\/api\/cotizaciones\/([^/]+)\/generar-recibo$/);
       if (request.method === 'POST' && mGenRec) {
