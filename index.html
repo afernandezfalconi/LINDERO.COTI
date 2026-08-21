@@ -2135,9 +2135,12 @@ function recopilarEstado(){
     unitario:eg.unitario
   }));
 
-  // Monto negociado
-  const montoNegociado=document.getElementById('monto-negociado')?.value;
-  if(montoNegociado) estado.montoNegociado=parseFloat(montoNegociado);
+  // Monto negociado. SIEMPRE se incluye (null si se vació) para que limpiarlo sí se
+  // guarde; antes, con vacío no se enviaba y el servidor conservaba el viejo por el
+  // merge {...prev, ...body}.
+  const montoNegociadoStr=(document.getElementById('monto-negociado')?.value||'').trim();
+  const montoNegociadoNum=parseFloat(montoNegociadoStr);
+  estado.montoNegociado=(montoNegociadoStr!=='' && !isNaN(montoNegociadoNum))?montoNegociadoNum:null;
   estado.subcontrato=!!(document.getElementById('chk-subcontrato')&&document.getElementById('chk-subcontrato').checked);
   const _selSub=document.getElementById('sel-subcontratista');
   if(_selSub){ estado.subcontratistaId=_selSub.value||''; estado.subcontratistaNombre=_selSub.value?_selSub.options[_selSub.selectedIndex].text:''; }
