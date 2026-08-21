@@ -377,7 +377,7 @@ function irAlHome(){
     <button class="tb" id="menu-proveedores" style="display:none" onclick="abrirProveedores()"><i class="ti ti-building-factory-2" aria-hidden="true"></i>Proveedores</button>
     <button class="tb" id="menu-usuarios" style="display:none" onclick="abrirPanelAdmin()"><i class="ti ti-users" aria-hidden="true"></i>Usuarios</button>
     <button class="tb" id="menu-auditoria" style="display:none" onclick="abrirAuditoria()"><i class="ti ti-chart-bar" aria-hidden="true"></i>Auditoría</button>
-    <button class="tb" onclick="nuevaCotizacion()"><i class="ti ti-plus" aria-hidden="true"></i>Nueva</button>
+    <button class="tb" data-perm="CREATE" onclick="nuevaCotizacion()"><i class="ti ti-plus" aria-hidden="true"></i>Nueva</button>
     <button class="tb ok" id="btn-guardar" onclick="guardarCotizacion()"><i class="ti ti-device-floppy" aria-hidden="true"></i>Guardar cotización</button>
     <div style="font-size:12px;text-align:right;padding:0 1rem;border-right:1px solid var(--border);min-width:150px">
       <div>👤 <span id="username">—</span></div>
@@ -1181,6 +1181,7 @@ let pts=[];
 let ok=false;
 let nL=4, conPorton=true, mat='c';
 let cotizacionActualKey=null; // null = cotización nueva; si tiene valor, se edita ese registro
+let cotizacionCreador=null;   // email de quien creó la cotización abierta (para permisos de edición)
 let costoBase=null; // costo total sin margen, se actualiza en calc()
 
 const COLS=['#e8c84a','#4adb8a','#5b8dee','#f06060','#c97bf5','#f0a830','#40d9c7','#ff8c69','#a8ff78','#ff6b9d'];
@@ -2031,17 +2032,43 @@ async function asignarFolioPreview(){
   }catch(e){ el.value=''; el.placeholder='(se asigna al guardar)'; }
 }
 
-// Ajusta el texto del botón guardar según si estamos creando o editando
+// ¿Es admin el usuario actual? (rol ADMIN o el admin principal por email)
+function esAdminActual(){
+  const u=obtenerUsuarioActual();
+  return (u.rol==='ADMIN') || u.email==='afernandezfalconi@gmail.com';
+}
+// ¿Puede el usuario actual editar/guardar la cotización que está en pantalla?
+//  - ADMIN: siempre.
+//  - VIEWER (sin permiso CREATE): nunca.
+//  - EDITOR: cotización NUEVA sí; una existente solo si es SUYA (él la creó).
+// Devuelve {ok, motivo}.
+function puedeEditarActual(){
+  const u=obtenerUsuarioActual();
+  if(esAdminActual()) return {ok:true};
+  const puedeCrear=(u.permissions&PERMISSIONS.CREATE_COTIZACIONES)!==0;
+  if(!puedeCrear) return {ok:false, motivo:'Tu rol es solo lectura (VIEWER). No puedes crear ni editar cotizaciones.'};
+  if(!cotizacionActualKey) return {ok:true}; // cotización nueva
+  const esMia = cotizacionCreador && cotizacionCreador===u.email;
+  if(!esMia) return {ok:false, motivo:'Solo el creador o el administrador pueden editar esta cotización.'};
+  return {ok:true};
+}
+// Ajusta el texto y el estado (habilitado/bloqueado) del botón guardar según permisos.
 function actualizarBotonGuardar(){
   const b=document.getElementById('btn-guardar');
   if(!b) return;
   b.textContent = cotizacionActualKey ? '💾 Actualizar cotización' : '💾 Guardar cotización';
+  const p=puedeEditarActual();
+  b.disabled=!p.ok;
+  b.style.opacity=p.ok?'':'0.45';
+  b.style.cursor=p.ok?'':'not-allowed';
+  b.title=p.ok?'':(p.motivo||'Sin permiso para editar');
 }
 
 // Inicia una cotización nueva: limpia cliente+lote y suelta el contexto de edición
 function nuevaCotizacion(){
   if(!confirm('¿Iniciar una nueva cotización?\n\nSe limpiarán los datos del cliente y del lote. Si no guardaste la cotización actual, se perderá.\n\nLos precios se conservan.')) return;
   cotizacionActualKey=null;
+  cotizacionCreador=null;
   // Datos específicos de la cotización (se conservan precios y datos de empresa).
   ['cli-n','cli-u','l-mz','l-nu','area-plano','sep-v','po-a'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   const mrg=document.getElementById('margen'); if(mrg) mrg.value='0';
@@ -2122,6 +2149,8 @@ function recopilarEstado(){
 }
 
 async function guardarCotizacion(){
+  const permiso=puedeEditarActual(); // defensa en el frontend (el servidor también valida)
+  if(!permiso.ok){ toast(permiso.motivo||'Sin permiso para editar', false); return; }
   const nombre=(document.getElementById('cli-n').value||'').trim();
   if(!nombre){
     toast('Ingresa el nombre del cliente antes de guardar', false);
@@ -2393,6 +2422,7 @@ async function cargarCotizacion(key){
 
     // Modo edición: a partir de aquí "Guardar" actualiza ESTE registro (mismo folio)
     cotizacionActualKey=key;
+    cotizacionCreador=data.creador||null; // para permisos: un editor solo edita lo que él creó
     document.getElementById('cli-f').value = data.resumenFolio || key; // asegurar folio
     await cargarRecibos(); // cargar pagos + vouchers de la cotización abierta (antes no se cargaban)
     actualizarBotonGuardar();
@@ -3528,6 +3558,21 @@ function actualizarUIPermisos(user){
 
   const menuAudit=document.getElementById('menu-auditoria');
   if(menuAudit) menuAudit.style.display=((user.permissions&PERMISSIONS.VIEW_AUDIT)!==0||user.email==='afernandezfalconi@gmail.com')?'block':'none';
+
+  // Insignia de solo lectura para VIEWER (sin permiso de crear/editar)
+  const tieneCreate=(user.permissions&PERMISSIONS.CREATE_COTIZACIONES)!==0;
+  const rolEl=document.getElementById('userrole');
+  if(rolEl){
+    const prev=document.getElementById('ro-badge'); if(prev) prev.remove();
+    if(!tieneCreate){
+      const b=document.createElement('span');
+      b.id='ro-badge';
+      b.textContent='· Solo lectura';
+      b.style.cssText='color:var(--accent2);font-size:10px;margin-left:4px';
+      rolEl.insertAdjacentElement('afterend', b);
+    }
+  }
+  actualizarBotonGuardar(); // el botón guardar refleja el permiso desde el login
 }
 
 // FASE 2: PANEL ADMIN - GESTIÓN DE USUARIOS
