@@ -526,6 +526,8 @@ function metaOf(rec, prev = {}) {
     total: rec.resumenTotal || '',
     estatus: rec.estatus || 'pendiente',
     estadoObra: rec.estadoObra || 'pendiente', // posteado/cercado: 'pendiente' | 'realizada'
+    bloqueada: !!rec.bloqueada,               // true cuando ya salió al cliente (landing/PDF)
+    bloqueoMotivo: rec.bloqueoMotivo || '',   // 'landing' | 'pdf'
     guardadoEn: rec.guardadoEn || '',
     actualizadoEn: rec.actualizadoEn || '',
     estadoPago: f.estadoPago,
@@ -1201,6 +1203,25 @@ export default {
         return json({ ok: true }, 200, origin);
       }
 
+      // ── MARCAR PDF DESCARGADO (bloqueo Fase 3) ───────────────────────
+      // El botón de PDF de la app llama aquí al imprimir. Bloquea la cotización
+      // para editores (una sola vez). El admin no se ve afectado.
+      const mPdf = path.match(/^\/api\/cotizaciones\/([^/]+)\/marcar-pdf$/);
+      if (request.method === 'POST' && mPdf) {
+        const folio = mPdf[1];
+        const raw = await env.COTIZACIONES.get(KV_PREFIX + folio);
+        if (!raw) return json({ error: 'No encontrada' }, 404, origin);
+        const rec = JSON.parse(raw);
+        if (!rec.bloqueada) {
+          rec.bloqueada = true;
+          rec.bloqueoMotivo = 'pdf';
+          rec.bloqueadaEn = new Date().toISOString();
+          await putRecord(env, folio, rec);
+          await createAuditLog(env, user, 'LOCK_PDF', folio);
+        }
+        return json({ ok: true, bloqueada: true }, 200, origin);
+      }
+
       // ── GENERAR RECIBO para una cotización pagada sin recibo ─────────
       const mGenRec = path.match(/^\/api\/cotizaciones\/([^/]+)\/generar-recibo$/);
       if (request.method === 'POST' && mGenRec) {
@@ -1357,6 +1378,13 @@ export default {
           return json({ error: 'Sin permisos para editar' }, 403, origin);
         }
 
+        // Bloqueo (Fase 3): si ya salió al cliente (landing/PDF), un NO-admin no puede
+        // editar la cotización; sí puede seguir registrando pagos (otros endpoints).
+        if (prev.bloqueada && !isAdmin(user)) {
+          await createAuditLog(env, user, 'EDIT_DENIED_LOCKED', id, { motivo: prev.bloqueoMotivo || '' });
+          return json({ error: 'Cotización bloqueada: ya se envió al cliente. Pide permiso al administrador para modificarla.', code: 'BLOQUEADA', motivo: prev.bloqueoMotivo || '' }, 403, origin);
+        }
+
         const body = await request.json();
         if (!validateCotizacion(body)) {
           return json({ error: 'Datos inválidos' }, 400, origin);
@@ -1417,11 +1445,25 @@ export default {
         const folio = (body.folio || '').trim();
         if (!folio) return json({ error: 'Folio requerido' }, 400, origin);
 
-        const rec = await env.COTIZACIONES.get(KV_PREFIX + folio);
-        if (!rec) return json({ error: 'Cotización no encontrada. Guárdala antes de compartir.' }, 404, origin);
+        const recRaw = await env.COTIZACIONES.get(KV_PREFIX + folio);
+        if (!recRaw) return json({ error: 'Cotización no encontrada. Guárdala antes de compartir.' }, 404, origin);
 
         const token = await generateLandingToken(env, folio);
         const url = new URL(request.url).origin + '/landing/' + token;
+
+        // Bloqueo (Fase 3): al compartir la landing, la cotización queda bloqueada para
+        // edición por editores (el admin no se ve afectado). Solo se marca una vez.
+        try {
+          const rec = JSON.parse(recRaw);
+          if (!rec.bloqueada) {
+            rec.bloqueada = true;
+            rec.bloqueoMotivo = 'landing';
+            rec.bloqueadaEn = new Date().toISOString();
+            await putRecord(env, folio, rec);
+            await createAuditLog(env, user, 'LOCK_LANDING', folio);
+          }
+        } catch (e) {}
+
         await createAuditLog(env, user, 'CREATE_LANDING', folio);
         return json({ token, url }, 200, origin);
       }

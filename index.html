@@ -1180,6 +1180,8 @@ let ok=false;
 let nL=4, conPorton=true, mat='c';
 let cotizacionActualKey=null; // null = cotización nueva; si tiene valor, se edita ese registro
 let cotizacionCreador=null;   // email de quien creó la cotización abierta (para permisos de edición)
+let cotizacionBloqueada=false; // Fase 3: true si ya salió al cliente (landing/PDF) -> editor no edita
+let cotizacionBloqueoMotivo=''; // 'landing' | 'pdf'
 let costoBase=null; // costo total sin margen, se actualiza en calc()
 
 const COLS=['#e8c84a','#4adb8a','#5b8dee','#f06060','#c97bf5','#f0a830','#40d9c7','#ff8c69','#a8ff78','#ff6b9d'];
@@ -2048,7 +2050,23 @@ function puedeEditarActual(){
   if(!cotizacionActualKey) return {ok:true}; // cotización nueva
   const esMia = cotizacionCreador && cotizacionCreador===u.email;
   if(!esMia) return {ok:false, motivo:'Solo el creador o el administrador pueden editar esta cotización.'};
+  if(cotizacionBloqueada) return {ok:false, bloqueada:true, motivo:'Cotización bloqueada ('+(cotizacionBloqueoMotivo==='pdf'?'PDF descargado':'enviada al cliente')+'). Pide permiso al administrador para editarla. Los pagos sí los puedes registrar.'};
   return {ok:true};
+}
+// Muestra/oculta el banner de bloqueo arriba del formulario (solo para no-admin con la cotización bloqueada).
+function refrescarBannerBloqueo(){
+  const existing=document.getElementById('banner-bloqueo');
+  const mostrar = !!cotizacionActualKey && cotizacionBloqueada && !esAdminActual();
+  if(!mostrar){ if(existing) existing.remove(); return; }
+  const motivoTxt = cotizacionBloqueoMotivo==='pdf' ? 'ya se descargó el PDF' : 'ya se envió al cliente (landing)';
+  const html='🔒 <strong>Cotización bloqueada</strong> — '+motivoTxt+'. Puedes <strong>registrar pagos del cliente</strong>, pero para modificar la cotización necesitas permiso del administrador.';
+  if(existing){ const s=existing.querySelector('span'); if(s) s.innerHTML=html; return; }
+  const b=document.createElement('div');
+  b.id='banner-bloqueo';
+  b.style.cssText='display:flex;gap:.6rem;align-items:flex-start;background:#3a2a12;border:1px solid #b5852f;color:#f0d9a8;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:13px;line-height:1.5';
+  b.innerHTML='<span>'+html+'</span>';
+  const anchor=document.querySelector('.sec');
+  if(anchor && anchor.parentNode) anchor.parentNode.insertBefore(b, anchor);
 }
 // Ajusta el texto y el estado (habilitado/bloqueado) del botón guardar según permisos.
 function actualizarBotonGuardar(){
@@ -2060,6 +2078,7 @@ function actualizarBotonGuardar(){
   b.style.opacity=p.ok?'':'0.45';
   b.style.cursor=p.ok?'':'not-allowed';
   b.title=p.ok?'':(p.motivo||'Sin permiso para editar');
+  refrescarBannerBloqueo();
 }
 
 // Inicia una cotización nueva: limpia cliente+lote y suelta el contexto de edición
@@ -2067,6 +2086,7 @@ function nuevaCotizacion(){
   if(!confirm('¿Iniciar una nueva cotización?\n\nSe limpiarán los datos del cliente y del lote. Si no guardaste la cotización actual, se perderá.\n\nLos precios se conservan.')) return;
   cotizacionActualKey=null;
   cotizacionCreador=null;
+  cotizacionBloqueada=false; cotizacionBloqueoMotivo='';
   // Datos específicos de la cotización (se conservan precios y datos de empresa).
   ['cli-n','cli-u','l-mz','l-nu','area-plano','sep-v','po-a'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   const mrg=document.getElementById('margen'); if(mrg) mrg.value='0';
@@ -2424,6 +2444,8 @@ async function cargarCotizacion(key){
     // Modo edición: a partir de aquí "Guardar" actualiza ESTE registro (mismo folio)
     cotizacionActualKey=key;
     cotizacionCreador=data.creador||null; // para permisos: un editor solo edita lo que él creó
+    cotizacionBloqueada=!!data.bloqueada; // Fase 3: bloqueada si ya salió al cliente
+    cotizacionBloqueoMotivo=data.bloqueoMotivo||'';
     document.getElementById('cli-f').value = data.resumenFolio || key; // asegurar folio
     await cargarRecibos(); // cargar pagos + vouchers de la cotización abierta (antes no se cargaban)
     actualizarBotonGuardar();
@@ -2628,6 +2650,15 @@ function eliminarProveedorActual(){
 
 // ── EXPORTAR / IMPRIMIR COTIZACIÓN CON MEMBRETE ───────────────────
 async function imprimirCotizacion(tipo){
+  // Fase 3: descargar el PDF bloquea la cotización para edición por editores.
+  // Fire-and-forget (no frena la impresión); solo si es una cotización guardada.
+  if(cotizacionActualKey){
+    try{
+      apiFetch('/api/cotizaciones/'+encodeURIComponent(cotizacionActualKey)+'/marcar-pdf',{method:'POST'})
+        .then(()=>{ cotizacionBloqueada=true; if(!cotizacionBloqueoMotivo) cotizacionBloqueoMotivo='pdf'; if(typeof actualizarBotonGuardar==='function') actualizarBotonGuardar(); })
+        .catch(()=>{});
+    }catch(e){}
+  }
   // Membrete fijo de Lindero (la sección editable "Datos de empresa" se retiró).
   const logoLindero = document.querySelector('.hdr-left img')?.src;
   document.getElementById('ph-logo').src = logoLindero || '';
@@ -2861,7 +2892,7 @@ function renderCentro(){
     const recBtn=it.tieneRecibo?'<button class="tb" title="Ver/compartir recibo" onclick="centroRecibo(\''+folio+'\')" style="padding:5px 8px"><i class="ti ti-receipt"></i></button>':((it.estadoPago==='pagada'||it.estadoPago==='parcial')?'<button class="tb ok" title="Generar recibo" onclick="centroGenerarRecibo(\''+folio+'\')" style="padding:4px 9px;font-size:11px">Generar</button>':centroIcoOff('ti-receipt'));
     const firmaBtn=it.firmada?'<button class="tb" title="Ver firma del cliente" onclick="centroFirma(\''+folio+'\')" style="padding:5px 8px"><i class="ti ti-signature"></i></button>':centroIcoOff('ti-signature');
     html+='<tr style="border-bottom:1px solid var(--border)'+(cancel?';opacity:.5':'')+'">'
-      +'<td style="padding:.6rem"><div style="font-weight:600'+(cancel?';text-decoration:line-through':'')+'">'+escHtml(it.cliente||'—')+'</div><div style="font-size:11px;font-family:var(--fm)"><a href="#" onclick="centroAbrirLanding(\''+folio+'\');return false" title="Abrir la landing de esta cotización en otra pestaña" style="color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)">'+escHtml(folio)+' <i class="ti ti-external-link" style="font-size:10px"></i></a></div></td>'
+      +'<td style="padding:.6rem"><div style="font-weight:600'+(cancel?';text-decoration:line-through':'')+'">'+escHtml(it.cliente||'—')+'</div><div style="font-size:11px;font-family:var(--fm)"><a href="#" onclick="centroAbrirLanding(\''+folio+'\');return false" title="Abrir la landing de esta cotización en otra pestaña" style="color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)">'+escHtml(folio)+' <i class="ti ti-external-link" style="font-size:10px"></i></a>'+(it.bloqueada?' <span title="Bloqueada ('+(it.bloqueoMotivo==='pdf'?'PDF descargado':'enviada al cliente')+') — un editor necesita permiso del admin para modificarla">🔒</span>':'')+'</div></td>'
       +'<td style="padding:.6rem;font-family:var(--fm)"><div>'+escHtml(it.total||'$—')+'</div>'+((it.saldo>0&&!cancel)?'<div style="font-size:11px;color:var(--red)">Saldo '+$m(it.saldo)+'</div>':'')+'</td>'
       +'<td style="padding:.6rem">'+(cancel?'<span style="font-size:11px;font-family:var(--fm);color:var(--muted);background:var(--bg3);border:1px solid var(--border);padding:2px 9px;border-radius:10px">Cancelada</span>':centroBadge(it.estadoPago||'pendiente'))+'</td>'
       +'<td style="padding:.6rem;text-align:center">'+centroObraBtn(folio, it.estadoObra||'pendiente')+'</td>'
