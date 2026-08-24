@@ -528,6 +528,11 @@ function metaOf(rec, prev = {}) {
     estadoObra: rec.estadoObra || 'pendiente', // posteado/cercado: 'pendiente' | 'realizada'
     bloqueada: !!rec.bloqueada,               // true cuando ya salió al cliente (landing/PDF)
     bloqueoMotivo: rec.bloqueoMotivo || '',   // 'landing' | 'pdf'
+    // Solicitud de desbloqueo del editor (Fase 4): banderas ligeras para el panel admin.
+    solicitudPendiente: !!(rec.solicitudDesbloqueo && rec.solicitudDesbloqueo.estado === 'pendiente'),
+    solicitante: (rec.solicitudDesbloqueo && rec.solicitudDesbloqueo.estado === 'pendiente') ? (rec.solicitudDesbloqueo.por || '') : '',
+    solicitudFecha: (rec.solicitudDesbloqueo && rec.solicitudDesbloqueo.estado === 'pendiente') ? (rec.solicitudDesbloqueo.fecha || '') : '',
+    solicitudMotivo: (rec.solicitudDesbloqueo && rec.solicitudDesbloqueo.estado === 'pendiente') ? (rec.solicitudDesbloqueo.motivo || '') : '',
     guardadoEn: rec.guardadoEn || '',
     actualizadoEn: rec.actualizadoEn || '',
     estadoPago: f.estadoPago,
@@ -1103,6 +1108,34 @@ export default {
         return json({ items, cursor: res.list_complete ? null : res.cursor }, 200, origin);
       }
 
+      // ── SOLICITUDES DE DESBLOQUEO pendientes (admin) ─────────────────
+      // Lee solo la metadata (barato) y devuelve las que tienen solicitud pendiente.
+      if (request.method === 'GET' && path === '/api/desbloqueos') {
+        if (!isAdmin(user)) return json({ error: 'Solo admin' }, 403, origin);
+        const items = [];
+        let cur;
+        do {
+          const r = await env.COTIZACIONES.list({ prefix: KV_PREFIX, cursor: cur, limit: 1000 });
+          for (const k of r.keys) {
+            const m = k.metadata || {};
+            if (m.solicitudPendiente) {
+              items.push({
+                folio: k.name.slice(KV_PREFIX.length),
+                cliente: m.cliente || '',
+                total: m.total || '',
+                bloqueoMotivo: m.bloqueoMotivo || '',
+                solicitante: m.solicitante || '',
+                solicitudFecha: m.solicitudFecha || '',
+                solicitudMotivo: m.solicitudMotivo || ''
+              });
+            }
+          }
+          cur = r.list_complete ? null : r.cursor;
+        } while (cur);
+        items.sort((a, b) => String(b.solicitudFecha).localeCompare(String(a.solicitudFecha)));
+        return json({ items }, 200, origin);
+      }
+
       // ── FINANZAS: ingresos + egresos de TODAS las cotizaciones en UNA request ──
       // Antes el front hacía N+1 (lista + un GET por cotización, con imágenes) -> lento
       // y tumbaba el rate-limit. Aquí se arma en el Worker: metadata (barato) para los
@@ -1220,6 +1253,56 @@ export default {
           await createAuditLog(env, user, 'LOCK_PDF', folio);
         }
         return json({ ok: true, bloqueada: true }, 200, origin);
+      }
+
+      // ── SOLICITAR DESBLOQUEO (editor pide permiso al admin) ──────────
+      const mSolic = path.match(/^\/api\/cotizaciones\/([^/]+)\/solicitar-desbloqueo$/);
+      if (request.method === 'POST' && mSolic) {
+        const folio = mSolic[1];
+        const raw = await env.COTIZACIONES.get(KV_PREFIX + folio);
+        if (!raw) return json({ error: 'No encontrada' }, 404, origin);
+        const rec = JSON.parse(raw);
+        // Debe tener permiso de editar la propia (o todas) y ser el dueño si no es admin.
+        const canEditAll = await hasPermission(user, PERMISSIONS.EDIT_ALL);
+        const canEditOwn = await hasPermission(user, PERMISSIONS.EDIT_OWN);
+        if (!canEditAll && (!canEditOwn || rec.creador !== user.email)) return json({ error: 'Sin permisos' }, 403, origin);
+        if (!rec.bloqueada) return json({ error: 'Esta cotización no está bloqueada' }, 400, origin);
+        let motivo = '';
+        try { const b = await request.json(); motivo = (typeof b.motivo === 'string' ? b.motivo : '').trim().slice(0, 300); } catch (e) {}
+        rec.solicitudDesbloqueo = { por: user.email, fecha: new Date().toISOString(), motivo, estado: 'pendiente' };
+        await putRecord(env, folio, rec);
+        await createAuditLog(env, user, 'SOLICITAR_DESBLOQUEO', folio, { motivo });
+        return json({ ok: true }, 200, origin);
+      }
+
+      // ── DESBLOQUEAR / RECHAZAR (solo admin) ──────────────────────────
+      const mDesb = path.match(/^\/api\/cotizaciones\/([^/]+)\/desbloquear$/);
+      if (request.method === 'POST' && mDesb) {
+        if (!isAdmin(user)) return json({ error: 'Solo admin' }, 403, origin);
+        const folio = mDesb[1];
+        const raw = await env.COTIZACIONES.get(KV_PREFIX + folio);
+        if (!raw) return json({ error: 'No encontrada' }, 404, origin);
+        const rec = JSON.parse(raw);
+        rec.bloqueada = false;
+        rec.bloqueoMotivo = '';
+        rec.desbloqueadaPor = user.email;
+        rec.desbloqueadaEn = new Date().toISOString();
+        if (rec.solicitudDesbloqueo) rec.solicitudDesbloqueo.estado = 'aprobada';
+        await putRecord(env, folio, rec);
+        await createAuditLog(env, user, 'DESBLOQUEAR', folio);
+        return json({ ok: true }, 200, origin);
+      }
+      const mRech = path.match(/^\/api\/cotizaciones\/([^/]+)\/rechazar-desbloqueo$/);
+      if (request.method === 'POST' && mRech) {
+        if (!isAdmin(user)) return json({ error: 'Solo admin' }, 403, origin);
+        const folio = mRech[1];
+        const raw = await env.COTIZACIONES.get(KV_PREFIX + folio);
+        if (!raw) return json({ error: 'No encontrada' }, 404, origin);
+        const rec = JSON.parse(raw);
+        if (rec.solicitudDesbloqueo) rec.solicitudDesbloqueo.estado = 'rechazada';
+        await putRecord(env, folio, rec); // sigue bloqueada
+        await createAuditLog(env, user, 'RECHAZAR_DESBLOQUEO', folio);
+        return json({ ok: true }, 200, origin);
       }
 
       // ── GENERAR RECIBO para una cotización pagada sin recibo ─────────

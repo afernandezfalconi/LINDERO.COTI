@@ -182,7 +182,7 @@ select option{background:var(--bg3)}
      botón PDF vive dentro del modal de compartir), no debe salir sobre la cotización. */
   #modal-overlay,#modal-exportar,#modal-landing,#modal-comp-overlay,
   #modal-finanzas-overlay,#modal-admin,#modal-auditoria,#providers-modal,#edit-prov-modal,
-  #chart-modal,#modal-pago,#modal-elige-comp,#modal-admin-hub,#toast{ display:none !important; }
+  #chart-modal,#modal-pago,#modal-elige-comp,#modal-admin-hub,#modal-desbloqueos,#toast{ display:none !important; }
 
   /* Membrete compacto para que TODO (incluida la firma) entre en 1 sola hoja. */
   #print-letterhead{display:block !important;color:#222;background:#fff;padding:0;font-family:var(--fb);
@@ -1182,6 +1182,7 @@ let cotizacionActualKey=null; // null = cotización nueva; si tiene valor, se ed
 let cotizacionCreador=null;   // email de quien creó la cotización abierta (para permisos de edición)
 let cotizacionBloqueada=false; // Fase 3: true si ya salió al cliente (landing/PDF) -> editor no edita
 let cotizacionBloqueoMotivo=''; // 'landing' | 'pdf'
+let cotizacionSolicitudPendiente=false; // Fase 4: ya se pidió desbloqueo al admin
 let costoBase=null; // costo total sin margen, se actualiza en calc()
 
 const COLS=['#e8c84a','#4adb8a','#5b8dee','#f06060','#c97bf5','#f0a830','#40d9c7','#ff8c69','#a8ff78','#ff6b9d'];
@@ -2059,7 +2060,10 @@ function refrescarBannerBloqueo(){
   const mostrar = !!cotizacionActualKey && cotizacionBloqueada && !esAdminActual();
   if(!mostrar){ if(existing) existing.remove(); return; }
   const motivoTxt = cotizacionBloqueoMotivo==='pdf' ? 'ya se descargó el PDF' : 'ya se envió al cliente (landing)';
-  const html='🔒 <strong>Cotización bloqueada</strong> — '+motivoTxt+'. Puedes <strong>registrar pagos del cliente</strong>, pero para modificar la cotización necesitas permiso del administrador.';
+  const accion = cotizacionSolicitudPendiente
+    ? '<span style="display:inline-block;margin-top:.5rem;font-weight:600">⏳ Solicitud enviada — pendiente de aprobación del administrador.</span>'
+    : '<button onclick="solicitarDesbloqueo()" style="margin-top:.5rem;background:#b5852f;color:#1a1207;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">Solicitar permiso al administrador</button>';
+  const html='🔒 <strong>Cotización bloqueada</strong> — '+motivoTxt+'. Puedes <strong>registrar pagos del cliente</strong>, pero para modificar la cotización necesitas permiso del administrador.<br>'+accion;
   if(existing){ const s=existing.querySelector('span'); if(s) s.innerHTML=html; return; }
   const b=document.createElement('div');
   b.id='banner-bloqueo';
@@ -2067,6 +2071,17 @@ function refrescarBannerBloqueo(){
   b.innerHTML='<span>'+html+'</span>';
   const anchor=document.querySelector('.sec');
   if(anchor && anchor.parentNode) anchor.parentNode.insertBefore(b, anchor);
+}
+// El editor pide permiso al admin para editar una cotización bloqueada.
+async function solicitarDesbloqueo(){
+  if(!cotizacionActualKey) return;
+  const motivo=prompt('¿Qué necesitas cambiar? (opcional, se le muestra al administrador)')||'';
+  try{
+    await apiFetch('/api/cotizaciones/'+encodeURIComponent(cotizacionActualKey)+'/solicitar-desbloqueo',{method:'POST',body:JSON.stringify({motivo})});
+    cotizacionSolicitudPendiente=true;
+    refrescarBannerBloqueo();
+    toast('✓ Solicitud enviada al administrador', true);
+  }catch(e){ toast('No se pudo enviar la solicitud: '+((e&&e.message)||e), false); }
 }
 // Ajusta el texto y el estado (habilitado/bloqueado) del botón guardar según permisos.
 function actualizarBotonGuardar(){
@@ -2086,7 +2101,7 @@ function nuevaCotizacion(){
   if(!confirm('¿Iniciar una nueva cotización?\n\nSe limpiarán los datos del cliente y del lote. Si no guardaste la cotización actual, se perderá.\n\nLos precios se conservan.')) return;
   cotizacionActualKey=null;
   cotizacionCreador=null;
-  cotizacionBloqueada=false; cotizacionBloqueoMotivo='';
+  cotizacionBloqueada=false; cotizacionBloqueoMotivo=''; cotizacionSolicitudPendiente=false;
   // Datos específicos de la cotización (se conservan precios y datos de empresa).
   ['cli-n','cli-u','l-mz','l-nu','area-plano','sep-v','po-a'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   const mrg=document.getElementById('margen'); if(mrg) mrg.value='0';
@@ -2446,6 +2461,7 @@ async function cargarCotizacion(key){
     cotizacionCreador=data.creador||null; // para permisos: un editor solo edita lo que él creó
     cotizacionBloqueada=!!data.bloqueada; // Fase 3: bloqueada si ya salió al cliente
     cotizacionBloqueoMotivo=data.bloqueoMotivo||'';
+    cotizacionSolicitudPendiente=!!(data.solicitudDesbloqueo && data.solicitudDesbloqueo.estado==='pendiente'); // Fase 4
     document.getElementById('cli-f').value = data.resumenFolio || key; // asegurar folio
     await cargarRecibos(); // cargar pagos + vouchers de la cotización abierta (antes no se cargaban)
     actualizarBotonGuardar();
@@ -3585,7 +3601,7 @@ function actualizarUIPermisos(user){
   // Un solo botón "Admin" (hub) visible para ADMIN (rol o admin principal)
   const esAdmin=(user.rol==='ADMIN')||user.email==='afernandezfalconi@gmail.com';
   const menuAdminBtn=document.getElementById('menu-admin');
-  if(menuAdminBtn) menuAdminBtn.style.display=esAdmin?'block':'none';
+  if(menuAdminBtn){ menuAdminBtn.style.display=esAdmin?'block':'none'; if(esAdmin) refrescarBadgeDesbloqueos(); }
 
   // Insignia de solo lectura para VIEWER (sin permiso de crear/editar)
   const tieneCreate=(user.permissions&PERMISSIONS.CREATE_COTIZACIONES)!==0;
@@ -3625,6 +3641,7 @@ function abrirAdminHub(){
         ${card('ti-users','Usuarios','Crear usuarios, cambiar roles y contraseñas','cerrarAdminHub();abrirPanelAdmin()')}
         ${card('ti-building-factory-2','Proveedores','Materiales, precios, subcontratistas y volatilidad','cerrarAdminHub();abrirProveedores()')}
         ${card('ti-chart-bar','Auditoría','Bitácora de cambios: quién hizo qué y cuándo','cerrarAdminHub();abrirAuditoria()')}
+        ${card('ti-lock-open','Solicitudes de desbloqueo','Editores que piden permiso para modificar cotizaciones bloqueadas','cerrarAdminHub();abrirDesbloqueos()')}
       </div>
       <button class="btnp ghost" style="width:100%;margin-top:1.25rem" onclick="cerrarAdminHub()">Cerrar</button>
     </div>
@@ -3632,6 +3649,74 @@ function abrirAdminHub(){
   document.body.insertAdjacentHTML('beforeend', html);
 }
 function cerrarAdminHub(){ const m=document.getElementById('modal-admin-hub'); if(m) m.remove(); }
+
+// Badge con el # de solicitudes pendientes en el botón Admin (para que el admin se entere).
+async function refrescarBadgeDesbloqueos(){
+  const btn=document.getElementById('menu-admin'); if(!btn) return;
+  try{
+    const r=await apiFetch('/api/desbloqueos');
+    const n=(r.items||[]).length;
+    let bd=document.getElementById('admin-badge');
+    if(n>0){
+      if(!bd){ bd=document.createElement('span'); bd.id='admin-badge'; bd.style.cssText='margin-left:5px;background:var(--red);color:#fff;border-radius:9px;padding:0 6px;font-size:10px;font-weight:700'; btn.appendChild(bd); }
+      bd.textContent=n;
+    } else if(bd){ bd.remove(); }
+  }catch(e){}
+}
+
+// ── SOLICITUDES DE DESBLOQUEO (admin) ─────────────────────────────
+async function abrirDesbloqueos(){
+  if(!esAdminActual()){ alert('Solo el administrador'); return; }
+  const ex=document.getElementById('modal-desbloqueos'); if(ex) ex.remove();
+  const ov=document.createElement('div');
+  ov.id='modal-desbloqueos';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1001;display:flex;align-items:center;justify-content:center';
+  ov.onclick=function(e){ if(e.target===ov) ov.remove(); };
+  ov.innerHTML='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;max-width:620px;width:92%;max-height:88vh;overflow:auto;padding:1.5rem">'
+    +'<div style="display:flex;align-items:center;gap:.6rem;margin-bottom:1rem"><i class="ti ti-lock-open" style="font-size:20px;color:var(--accent)"></i><h2 style="margin:0;font-family:var(--fh)">Solicitudes de desbloqueo</h2><button onclick="document.getElementById(\'modal-desbloqueos\').remove()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button></div>'
+    +'<div id="desbloqueos-list"><p style="color:var(--muted)">Cargando…</p></div>'
+    +'<button class="btnp ghost" style="width:100%;margin-top:1rem" onclick="document.getElementById(\'modal-desbloqueos\').remove()">Cerrar</button>'
+    +'</div>';
+  document.body.appendChild(ov);
+  await cargarDesbloqueos();
+}
+async function cargarDesbloqueos(){
+  const cont=document.getElementById('desbloqueos-list'); if(!cont) return;
+  try{
+    const r=await apiFetch('/api/desbloqueos');
+    const items=r.items||[];
+    try{ refrescarBadgeDesbloqueos(); }catch(e){}
+    if(items.length===0){ cont.innerHTML='<p style="color:var(--muted);text-align:center;padding:1rem">No hay solicitudes pendientes.</p>'; return; }
+    cont.innerHTML=items.map(function(it){
+      const fecha=it.solicitudFecha?new Date(it.solicitudFecha).toLocaleString('es-MX'):'';
+      const motivoBloq=it.bloqueoMotivo==='pdf'?'PDF descargado':'enviada al cliente';
+      return '<div style="border:1px solid var(--border);border-radius:8px;padding:.9rem;margin-bottom:.6rem;background:var(--bg3)">'
+        +'<div style="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap"><strong style="font-family:var(--fm);color:var(--accent)">'+escHtml(it.folio)+'</strong><span style="font-size:12px;color:var(--muted)">'+escHtml(fecha)+'</span></div>'
+        +'<div style="font-size:13px;margin-top:.25rem">'+escHtml(it.cliente||'—')+' · '+escHtml(it.total||'')+' · <span style="color:var(--muted)">bloqueo: '+motivoBloq+'</span></div>'
+        +'<div style="font-size:12px;color:var(--muted);margin-top:.25rem">Solicita: <b>'+escHtml(it.solicitante||'—')+'</b>'+(it.solicitudMotivo?(' — "'+escHtml(it.solicitudMotivo)+'"'):'')+'</div>'
+        +'<div style="display:flex;gap:.5rem;margin-top:.6rem">'
+        +'<button class="tb ok" style="flex:1;justify-content:center" onclick="aprobarDesbloqueo(\''+it.folio+'\')"><i class="ti ti-check"></i> Aprobar (desbloquear)</button>'
+        +'<button class="tb" style="flex:1;justify-content:center;color:var(--red);border-color:var(--red)" onclick="rechazarDesbloqueo(\''+it.folio+'\')"><i class="ti ti-x"></i> Rechazar</button>'
+        +'</div></div>';
+    }).join('');
+  }catch(e){ cont.innerHTML='<p style="color:var(--red)">Error: '+((e&&e.message)||e)+'</p>'; }
+}
+async function aprobarDesbloqueo(folio){
+  try{
+    await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/desbloquear',{method:'POST'});
+    toast('✓ '+folio+' desbloqueada', true);
+    if(cotizacionActualKey===folio){ cotizacionBloqueada=false; cotizacionSolicitudPendiente=false; actualizarBotonGuardar(); }
+    await cargarDesbloqueos();
+  }catch(e){ toast('No se pudo desbloquear: '+((e&&e.message)||e), false); }
+}
+async function rechazarDesbloqueo(folio){
+  if(!confirm('¿Rechazar la solicitud de '+folio+'? La cotización sigue bloqueada.')) return;
+  try{
+    await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/rechazar-desbloqueo',{method:'POST'});
+    toast('Solicitud de '+folio+' rechazada', true);
+    await cargarDesbloqueos();
+  }catch(e){ toast('No se pudo rechazar: '+((e&&e.message)||e), false); }
+}
 
 // FASE 2: PANEL ADMIN - GESTIÓN DE USUARIOS
 async function abrirPanelAdmin(){
