@@ -3738,7 +3738,10 @@ function cerrarPanelAdmin(){
 function crearPanelAdmin(){
   const modalHTML=`<div id="modal-admin" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2rem;max-width:800px;max-height:90vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.3)">
-      <h2 style="margin-bottom:1.5rem">👥 Gestión de Usuarios</h2>
+      <div style="position:sticky;top:-2rem;z-index:5;background:var(--bg);margin:-2rem -2rem 1.5rem;padding:1.1rem 2rem;border-bottom:1px solid var(--border);display:flex;align-items:center">
+        <h2 style="margin:0">👥 Gestión de Usuarios</h2>
+        <button onclick="cerrarPanelAdmin()" title="Cerrar" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1">✕</button>
+      </div>
 
       <h3>Usuarios Actuales</h3>
       <table style="width:100%;border-collapse:collapse;margin-bottom:2rem">
@@ -3874,7 +3877,10 @@ function cerrarAuditoria(){
 function crearPanelAuditoria(){
   const modalHTML=`<div id="modal-auditoria" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2rem;max-width:1000px;max-height:90vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.3)">
-      <h2 style="margin-bottom:1.5rem">📊 Bitácora de Auditoría</h2>
+      <div style="position:sticky;top:-2rem;z-index:5;background:var(--bg);margin:-2rem -2rem 1.5rem;padding:1.1rem 2rem;border-bottom:1px solid var(--border);display:flex;align-items:center">
+        <h2 style="margin:0">📊 Bitácora de Auditoría</h2>
+        <button onclick="cerrarAuditoria()" title="Cerrar" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1">✕</button>
+      </div>
 
       <div style="display:grid;gap:1rem;grid-template-columns:repeat(3,1fr);margin-bottom:1rem">
         <select id="audit-filter-usuario" onchange="filtrarAuditoria()" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
@@ -3993,7 +3999,10 @@ function crearPanelProveedores(){
   const modalHTML=`
   <div id="providers-modal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999">
     <div style="background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:8px;max-width:1000px;width:90%;max-height:90vh;overflow:auto;padding:2rem">
-      <h2 style="margin-top:0">🏭 Gestión de Proveedores</h2>
+      <div style="position:sticky;top:-2rem;z-index:5;background:var(--bg2);margin:-2rem -2rem 1.25rem;padding:1.1rem 2rem;border-bottom:1px solid var(--border);display:flex;align-items:center">
+        <h2 style="margin:0">🏭 Gestión de Proveedores</h2>
+        <button onclick="cerrarProveedores()" title="Cerrar" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1">✕</button>
+      </div>
 
       <div style="margin-bottom:2rem;padding:1rem;background:var(--bg3);border-radius:6px">
         <h3 style="margin-top:0">➕ Agregar Proveedor</h3>
@@ -4210,7 +4219,10 @@ function abrirEditarProveedor(id){
 
   const html=`<div id="edit-prov-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10001">
     <div style="background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:8px;max-width:760px;width:92%;max-height:90vh;overflow:auto;padding:1.5rem">
-      <h3 style="margin-top:0"><i class="ti ti-edit" aria-hidden="true"></i> Editar proveedor</h3>
+      <div style="position:sticky;top:-1.5rem;z-index:5;background:var(--bg2);margin:-1.5rem -1.5rem 1rem;padding:1rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center">
+        <h3 style="margin:0"><i class="ti ti-edit" aria-hidden="true"></i> Editar proveedor</h3>
+        <button onclick="document.getElementById('edit-prov-modal').remove()" title="Cerrar" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1">✕</button>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
         <input id="edit-prov-nombre" type="text" placeholder="Nombre" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
         <input id="edit-prov-telefono" type="text" placeholder="Teléfono" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
