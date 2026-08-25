@@ -3877,14 +3877,11 @@ function crearPanelAuditoria(){
       <h2 style="margin-bottom:1.5rem">📊 Bitácora de Auditoría</h2>
 
       <div style="display:grid;gap:1rem;grid-template-columns:repeat(3,1fr);margin-bottom:1rem">
-        <input type="text" id="audit-filter-usuario" placeholder="Usuario" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-        <select id="audit-filter-accion" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-          <option value="">Todas</option>
-          <option value="CREATE">CREATE</option>
-          <option value="EDIT">EDIT</option>
-          <option value="VIEW">VIEW</option>
-          <option value="DELETE">DELETE</option>
-          <option value="LOGIN">LOGIN</option>
+        <select id="audit-filter-usuario" onchange="filtrarAuditoria()" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+          <option value="">Todos los usuarios</option>
+        </select>
+        <select id="audit-filter-accion" onchange="filtrarAuditoria()" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+          <option value="">Todas las acciones</option>
         </select>
         <button onclick="filtrarAuditoria()" style="padding:0.5rem;background:var(--accent);border:none;border-radius:4px">🔍 Filtrar</button>
       </div>
@@ -3900,6 +3897,7 @@ function crearPanelAuditoria(){
   document.body.insertAdjacentHTML('beforeend', modalHTML);
 }
 
+let auditItems=[]; // cache de la bitácora para filtrar en memoria sin re-consultar
 async function cargarAuditoria(){
   const token=obtenerToken();
   const user=obtenerUsuarioActual();
@@ -3907,25 +3905,49 @@ async function cargarAuditoria(){
     const resp=await fetch(API_BASE+'/api/audit', {headers:{'X-Auth-Token':token,'X-User-Email':user.email}});
     if(!resp.ok) throw new Error('Error');
     const data=await resp.json();
-
-    const tbody=document.getElementById('audit-tbody');
-    tbody.innerHTML='';
-    data.items.slice(0,100).forEach(a=>{
-      const row=`<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:0.5rem">${new Date(a.timestamp).toLocaleString('es-MX')}</td>
-        <td>${a.usuario}</td>
-        <td>${a.accion}</td>
-        <td>${a.recurso}</td>
-      </tr>`;
-      tbody.insertAdjacentHTML('beforeend', row);
-    });
+    auditItems=data.items||[];
+    await poblarFiltrosAuditoria();
+    renderAuditoria();
   }catch(e){
     console.error(e);
+    const tb=document.getElementById('audit-tbody'); if(tb) tb.innerHTML='<tr><td colspan="4" style="padding:1rem;color:var(--red);text-align:center">Error al cargar la bitácora</td></tr>';
   }
+}
+// Pobla el dropdown de usuarios (existentes desde /api/users + los que aparecen en la
+// bitácora, por si hay usuarios históricos/borrados) y el de acciones (las que existen).
+async function poblarFiltrosAuditoria(){
+  const selU=document.getElementById('audit-filter-usuario');
+  if(selU){
+    const emails=new Set();
+    try{
+      const r=await fetch(API_BASE+'/api/users',{headers:{'X-Auth-Token':obtenerToken(),'X-User-Email':obtenerUsuarioActual().email}});
+      if(r.ok){ const d=await r.json(); (d.items||[]).forEach(u=>{ if(u.email) emails.add(u.email); }); }
+    }catch(e){}
+    auditItems.forEach(a=>{ if(a.usuario) emails.add(a.usuario); });
+    const cur=selU.value;
+    selU.innerHTML='<option value="">Todos los usuarios</option>'+[...emails].sort().map(e=>'<option value="'+escHtml(e)+'">'+escHtml(e)+'</option>').join('');
+    if([...selU.options].some(o=>o.value===cur)) selU.value=cur;
+  }
+  const selA=document.getElementById('audit-filter-accion');
+  if(selA){
+    const acc=new Set(); auditItems.forEach(a=>{ if(a.accion) acc.add(a.accion); });
+    const cur=selA.value;
+    selA.innerHTML='<option value="">Todas las acciones</option>'+[...acc].sort().map(a=>'<option value="'+escHtml(a)+'">'+escHtml(a)+'</option>').join('');
+    if([...selA.options].some(o=>o.value===cur)) selA.value=cur;
+  }
+}
+function renderAuditoria(){
+  const fU=(document.getElementById('audit-filter-usuario')||{}).value||'';
+  const fA=(document.getElementById('audit-filter-accion')||{}).value||'';
+  const rows=auditItems.filter(a=> (!fU || a.usuario===fU) && (!fA || a.accion===fA) );
+  const tbody=document.getElementById('audit-tbody'); if(!tbody) return;
+  tbody.innerHTML = rows.length
+    ? rows.slice(0,300).map(a=>'<tr style="border-bottom:1px solid var(--border)"><td style="padding:0.5rem">'+new Date(a.timestamp).toLocaleString('es-MX')+'</td><td>'+escHtml(a.usuario||'')+'</td><td>'+escHtml(a.accion||'')+'</td><td>'+escHtml(a.recurso||'')+'</td></tr>').join('')
+    : '<tr><td colspan="4" style="padding:1rem;text-align:center;color:var(--muted)">Sin registros con estos filtros</td></tr>';
 }
 
 async function filtrarAuditoria(){
-  await cargarAuditoria();
+  renderAuditoria(); // filtra en memoria (sin re-consultar); la data ya está cacheada
 }
 
 // ── FASE 4: GESTIÓN DE PROVEEDORES ────────────────────────────────
