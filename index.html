@@ -3461,8 +3461,8 @@ function filtrarFinanzas(){
     html+='</tr></thead><tbody>';
     ingresos.forEach(ing=>{
       html+='<tr style="border-bottom:1px solid var(--border-soft)">';
-      html+='<td style="padding:0.6rem 0.5rem;font-family:var(--fm)">'+ing.folio+'</td>';
-      html+='<td style="padding:0.6rem 0.5rem">'+ing.cliente+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem;font-family:var(--fm)">'+escHtml(ing.folio||'')+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem">'+escHtml(ing.cliente||'')+'</td>';
       html+='<td style="padding:0.6rem 0.5rem;text-align:right;font-family:var(--fm)">'+$m(ing.monto)+'</td>';
       html+='<td style="padding:0.6rem 0.5rem;text-align:center">'+(ing.conVoucher?'<button class="tb" title="Ver comprobante" onclick="verComprobanteFinanzas(\''+ing.folio+'\')" style="padding:2px 8px;font-size:14px">📎</button>':'—')+'</td>';
       html+='<td style="padding:0.6rem 0.5rem;font-size:12px;color:var(--muted)">'+ing.fechaPago+'</td>';
@@ -3490,9 +3490,9 @@ function filtrarFinanzas(){
     html+='</tr></thead><tbody>';
     egresosData.forEach(eg=>{
       html+='<tr style="border-bottom:1px solid var(--border-soft)">';
-      html+='<td style="padding:0.6rem 0.5rem;font-family:var(--fm)">'+eg.folio+'</td>';
-      html+='<td style="padding:0.6rem 0.5rem">'+eg.cliente+'</td>';
-      html+='<td style="padding:0.6rem 0.5rem">'+eg.desc+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem;font-family:var(--fm)">'+escHtml(eg.folio||'')+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem">'+escHtml(eg.cliente||'')+'</td>';
+      html+='<td style="padding:0.6rem 0.5rem">'+escHtml(eg.desc||'')+'</td>';
       html+='<td style="padding:0.6rem 0.5rem;text-align:right;font-family:var(--fm)">'+eg.cant.toFixed(2)+'</td>';
       html+='<td style="padding:0.6rem 0.5rem;text-align:right;font-family:var(--fm)">'+$m(eg.unitario)+'</td>';
       html+='<td style="padding:0.6rem 0.5rem;text-align:right;font-family:var(--fm)">'+$m(eg.total)+'</td>';
