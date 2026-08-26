@@ -646,10 +646,9 @@ export default {
         if (user.passwordHash && user.passwordSalt) {
           const { hash } = await hashPassword(password, user.passwordSalt);
           validPassword = await timingSafeCompare(hash, user.passwordHash);
-        } else if (email === ADMIN_EMAIL && password === 'admin123') {
-          // Contraseña inicial del admin hasta que fije la suya propia
-          validPassword = true;
         }
+        // (Se eliminó el fallback 'admin123': el admin ya fijó su contraseña. Si algún
+        //  usuario se queda sin passwordHash, no puede entrar y se le asigna una por el panel.)
         if (!validPassword) {
           return json({ error: 'Usuario o contraseña inválidos' }, 401, origin);
         }
