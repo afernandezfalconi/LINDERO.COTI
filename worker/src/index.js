@@ -494,8 +494,11 @@ function computeFlags(rec, receipts) {
   const totalNum = parseMoney(rec && rec.resumenTotal);
   const pago = (rec && rec.pago) || null;
   let montoPagado = 0;
-  if (pago && typeof pago.montoRecibido === 'number') montoPagado = pago.montoRecibido;
-  else if (Array.isArray(receipts)) montoPagado = receipts.reduce((s, r) => s + (r.historiaPagos || []).reduce((a, p) => a + (p.monto || 0), 0), 0);
+  // Los RECIBOS son la fuente de verdad cuando existen (rec.pago puede quedar viejo tras
+  // borrar/agregar pagos). Solo si NO hay recibos se usa rec.pago (pagos de formato viejo).
+  const receiptSum = Array.isArray(receipts) ? receipts.reduce((s, r) => s + (r.historiaPagos || []).reduce((a, p) => a + (p.monto || 0), 0), 0) : null;
+  if (Array.isArray(receipts) && receipts.length) montoPagado = receiptSum;
+  else if (pago && typeof pago.montoRecibido === 'number') montoPagado = pago.montoRecibido;
   else if (pago && pago.pagado) montoPagado = totalNum;
   const estadoPago = montoPagado <= 0 ? 'pendiente' : (montoPagado + 0.01 >= totalNum ? 'pagada' : 'parcial');
   const saldo = Math.max(0, Math.round((totalNum - montoPagado) * 100) / 100);
@@ -562,7 +565,18 @@ async function refreshFlags(env, folio) {
   if (!raw) return;
   const rec = JSON.parse(raw);
   const receipts = await getReceiptsByFolio(env, folio);
-  const meta = { ...metaOf(rec), ...computeFlags(rec, receipts) };
+  const f = computeFlags(rec, receipts);
+  // Sincronizar rec.pago con los recibos (fuente de verdad) para que metaOf —que en un
+  // PUT posterior recalcula la metadata SIN recibos— no revierta el estado a un pago viejo.
+  if (Array.isArray(receipts) && receipts.length) {
+    const totalNum = parseMoney(rec.resumenTotal);
+    rec.pago = {
+      pagado: f.montoPagado > 0 && (f.montoPagado + 0.01 >= totalNum),
+      montoRecibido: f.montoPagado,
+      fechaPago: f.fechaPago || (rec.pago && rec.pago.fechaPago) || ''
+    };
+  }
+  const meta = { ...metaOf(rec), ...f };
   await env.COTIZACIONES.put(KV_PREFIX + folio, JSON.stringify(rec), { metadata: meta });
 }
 
