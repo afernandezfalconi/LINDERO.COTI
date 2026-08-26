@@ -1348,10 +1348,39 @@ export default {
         if (!(await hasPermission(user, PERMISSIONS.VIEW_AUDIT)) && user.email !== ADMIN_EMAIL) {
           return json({ error: 'Solo admin' }, 403, origin);
         }
+        // EFICIENTE: cargar TODOS los recibos UNA sola vez (agrupados por folio) y luego
+        // recomputar cada cotización sin volver a listar/leer recibos por folio. Antes se
+        // hacía getReceiptsByFolio por cada cotización (~13 subrequests c/u) y a ~80
+        // cotizaciones se pasaba del límite de 1000 subrequests por invocación (error 500).
+        const recibosPorFolio = {};
+        let rc;
+        do {
+          const rr = await env.COTIZACIONES.list({ prefix: RECEIPTS_PREFIX, cursor: rc, limit: 1000 });
+          for (const k of rr.keys) {
+            const raw = await env.COTIZACIONES.get(k.name);
+            if (!raw) continue;
+            try { const r = JSON.parse(raw); if (r.folio) (recibosPorFolio[r.folio] = recibosPorFolio[r.folio] || []).push(r); } catch (e) {}
+          }
+          rc = rr.list_complete ? null : rr.cursor;
+        } while (rc);
+
         let cur, procesadas = 0;
         do {
           const r = await env.COTIZACIONES.list({ prefix: KV_PREFIX, cursor: cur, limit: 100 });
-          for (const k of r.keys) { await refreshFlags(env, k.name.slice(KV_PREFIX.length)); procesadas++; }
+          for (const k of r.keys) {
+            const raw = await env.COTIZACIONES.get(k.name);
+            if (!raw) continue;
+            let rec; try { rec = JSON.parse(raw); } catch (e) { continue; }
+            const folio = k.name.slice(KV_PREFIX.length);
+            const receipts = recibosPorFolio[folio] || [];
+            const f = computeFlags(rec, receipts);
+            if (receipts.length) {
+              const totalNum = parseMoney(rec.resumenTotal);
+              rec.pago = { pagado: f.montoPagado > 0 && (f.montoPagado + 0.01 >= totalNum), montoRecibido: f.montoPagado, fechaPago: f.fechaPago || (rec.pago && rec.pago.fechaPago) || '' };
+            }
+            await env.COTIZACIONES.put(k.name, JSON.stringify(rec), { metadata: { ...metaOf(rec), ...f } });
+            procesadas++;
+          }
           cur = r.list_complete ? null : r.cursor;
         } while (cur);
         return json({ ok: true, procesadas }, 200, origin);
