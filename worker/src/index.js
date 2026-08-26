@@ -133,6 +133,11 @@ async function hashPassword(password, saltHex) {
   return { salt: bufToHex(salt), hash: bufToHex(bits) };
 }
 
+// Token aleatorio CRIPTOGRÁFICAMENTE seguro (antes se usaba Math.random(), predecible).
+function secureToken(bytes) {
+  return bufToHex(crypto.getRandomValues(new Uint8Array(bytes || 24)));
+}
+
 // ── USUARIOS Y AUTENTICACIÓN ──────────────────────────────────────────
 async function getUserByToken(env, token) {
   const raw = await env.COTIZACIONES.get(TOKENS_PREFIX + token);
@@ -431,7 +436,7 @@ async function generateLandingToken(env, folio) {
       return prev;
     }
   }
-  const token = Math.random().toString(36).substring(2, 34);
+  const token = secureToken(20);
   await env.COTIZACIONES.put(TOKENS_PREFIX + 'landing:' + token, folio, { expirationTtl: TTL });
   await env.COTIZACIONES.put(revKey, token, { expirationTtl: TTL });
   return token;
@@ -457,7 +462,7 @@ async function generateReceiptToken(env, numero) {
       return prev;
     }
   }
-  const token = Math.random().toString(36).substring(2, 34);
+  const token = secureToken(20);
   await env.COTIZACIONES.put(TOKENS_PREFIX + 'recibo:' + token, numero, { expirationTtl: TTL });
   await env.COTIZACIONES.put(revKey, token, { expirationTtl: TTL });
   return token;
@@ -608,24 +613,9 @@ export default {
       return json({ ok: true, service: 'lindero-coti-api-v2', timestamp: new Date().toISOString() }, 200, origin);
     }
 
-    // ── SETUP: Crear admin si no existe (temporal, solo primera vez) ────
-    if (path === '/api/setup/init-admin') {
-      const existingAdmin = await env.COTIZACIONES.get(USERS_PREFIX + ADMIN_EMAIL);
-      if (existingAdmin) {
-        return json({ message: 'Admin ya existe' }, 200, origin);
-      }
-
-      const adminUser = {
-        email: ADMIN_EMAIL,
-        rol: 'ADMIN',
-        permissions: 255,
-        creadoEn: new Date().toISOString(),
-        creadoPor: 'system-init'
-      };
-
-      await env.COTIZACIONES.put(USERS_PREFIX + ADMIN_EMAIL, JSON.stringify(adminUser));
-      return json({ message: 'Admin creado exitosamente', admin: adminUser }, 201, origin);
-    }
+    // (Se eliminó /api/setup/init-admin: endpoint público que bootstrapeaba un admin
+    //  total. El admin ya existe; una recuperación futura se hace por wrangler, no
+    //  por un endpoint sin auth.)
 
     // ── LOGIN SIN AUTENTICACIÓN (para obtener token) ────────────────────
     if (request.method === 'POST' && path === '/api/auth/login') {
@@ -664,8 +654,8 @@ export default {
           return json({ error: 'Usuario o contraseña inválidos' }, 401, origin);
         }
 
-        // Generar token
-        const newToken = Math.random().toString(36).substring(2, 34) + Math.random().toString(36).substring(2, 34);
+        // Generar token de sesión (seguro)
+        const newToken = secureToken(32);
         await env.COTIZACIONES.put(TOKENS_PREFIX + newToken, email, { expirationTtl: 7 * 24 * 3600 });
 
         await createAuditLog(env, user, 'LOGIN', email);
@@ -676,7 +666,7 @@ export default {
           permissions: user.permissions,
         }, 200, origin);
       } catch (e) {
-        return json({ error: 'Error en autenticación', detail: e.message }, 500, origin);
+        return json({ error: 'Error en autenticación' }, 500, origin);
       }
     }
 
@@ -753,11 +743,11 @@ export default {
       const mzLoteParts = [mz ? `Mz ${escL(mz)}` : '', lote ? `Lote ${escL(lote)}` : ''].filter(Boolean).join(' · ');
       const mzLoteHtml = mzLoteParts ? `<br><strong>Manzana y Lote:</strong> ${mzLoteParts}` : '';
       const detallesLote = `
-        <tr><td>Forma</td><td>${rec.resumenDetalles?.forma || '—'}</td></tr>
-        <tr><td>Perímetro</td><td>${rec.resumenDetalles?.perim || '—'}</td></tr>
-        <tr><td>Área</td><td>${areaCliente}</td></tr>
-        <tr><td>Separación</td><td>${rec.resumenDetalles?.sep || '—'}</td></tr>
-        <tr><td>Portón</td><td>${rec.resumenDetalles?.porton || '—'}</td></tr>
+        <tr><td>Forma</td><td>${escL(rec.resumenDetalles?.forma || '—')}</td></tr>
+        <tr><td>Perímetro</td><td>${escL(rec.resumenDetalles?.perim || '—')}</td></tr>
+        <tr><td>Área</td><td>${escL(areaCliente)}</td></tr>
+        <tr><td>Separación</td><td>${escL(rec.resumenDetalles?.sep || '—')}</td></tr>
+        <tr><td>Portón</td><td>${escL(rec.resumenDetalles?.porton || '—')}</td></tr>
       `;
 
       // Landing PÚBLICA: no exponer datos internos que perjudiquen al negocio.
@@ -800,14 +790,14 @@ export default {
       // cotización se hizo con medidas manuales (sin plano), no hay snapshot y se omite.
       const croquis = (rec.snapshot && /^data:image\//.test(rec.snapshot)) ? `
     <h3>Croquis del Terreno</h3>
-    <div style="text-align:center;margin-bottom:2rem"><img src="${rec.snapshot}" alt="Croquis del terreno" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.08)"></div>` : '';
+    <div style="text-align:center;margin-bottom:2rem"><img src="${escL(rec.snapshot)}" alt="Croquis del terreno" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.08)"></div>` : '';
 
       const materialesLote = `
-        <tr><td>Postes línea</td><td>${postesLinea}</td></tr>
-        <tr><td>Postes esquineros</td><td>${postesEsq}</td></tr>
-        <tr><td>Material</td><td>${materialTipo}</td></tr>
-        <tr><td>Modo</td><td>${rec.resumenDetalles?.modo || '—'}</td></tr>
-        <tr><td>${esMalla ? 'Malla' : 'Alambre'}</td><td>${alambre}</td></tr>
+        <tr><td>Postes línea</td><td>${escL(postesLinea)}</td></tr>
+        <tr><td>Postes esquineros</td><td>${escL(postesEsq)}</td></tr>
+        <tr><td>Material</td><td>${escL(materialTipo)}</td></tr>
+        <tr><td>Modo</td><td>${escL(rec.resumenDetalles?.modo || '—')}</td></tr>
+        <tr><td>${esMalla ? 'Malla' : 'Alambre'}</td><td>${escL(alambre)}</td></tr>
       `;
 
       // Sección de aceptación del cliente: si ya aceptó, se muestra confirmación; si no, el formulario.
@@ -889,10 +879,10 @@ export default {
   <div class="container">
     <div class="header">
       <div class="logo"><img src="${LINDERO_LOGO}" alt="Lindero" style="height:78px;width:auto;display:block"></div>
-      <div class="fecha">Folio: ${rec.resumenFolio}</div>
+      <div class="fecha">Folio: ${escL(rec.resumenFolio)}</div>
     </div>
     <div class="cliente">
-      <strong>Cliente:</strong> ${rec.resumenCliente || '—'}${ubicHtml}${mzLoteHtml}
+      <strong>Cliente:</strong> ${escL(rec.resumenCliente || '—')}${ubicHtml}${mzLoteHtml}
     </div>
     <h3>Detalle del Lote</h3>
     <table><tbody>${detallesLote}</tbody></table>${croquis}
@@ -900,7 +890,7 @@ export default {
     <table><tbody>${materialesLote}</tbody></table>
     <div class="total-section">
       <div>Precio Total</div>
-      <div class="total-valor">${rec.resumenTotal || '$—'}</div>
+      <div class="total-valor">${escL(rec.resumenTotal || '$—')}</div>
     </div>
     <div class="terminos">
       <h3>Términos y condiciones</h3>
@@ -1255,6 +1245,10 @@ export default {
       // para editores (una sola vez). El admin no se ve afectado.
       const mPdf = path.match(/^\/api\/cotizaciones\/([^/]+)\/marcar-pdf$/);
       if (request.method === 'POST' && mPdf) {
+        // Solo quien puede crear/editar dispara el bloqueo; un VIEWER que imprime no bloquea.
+        if (!(await hasPermission(user, PERMISSIONS.CREATE_COTIZACIONES)) && !isAdmin(user)) {
+          return json({ ok: true, bloqueada: false }, 200, origin);
+        }
         const folio = mPdf[1];
         const raw = await env.COTIZACIONES.get(KV_PREFIX + folio);
         if (!raw) return json({ error: 'No encontrada' }, 404, origin);
@@ -1538,6 +1532,9 @@ export default {
 
       // ── LANDING PÚBLICA: generar link para compartir una cotización ──
       if (request.method === 'POST' && path === '/api/landing') {
+        if (!(await hasPermission(user, PERMISSIONS.CREATE_COTIZACIONES)) && !isAdmin(user)) {
+          return json({ error: 'Sin permisos para compartir' }, 403, origin);
+        }
         const body = await request.json();
         const folio = (body.folio || '').trim();
         if (!folio) return json({ error: 'Folio requerido' }, 400, origin);
