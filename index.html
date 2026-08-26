@@ -2313,24 +2313,26 @@ async function abrirListaCotizaciones(filtro){
       const info=ESTATUS_INFO[est]||ESTATUS_INFO.pendiente;
       const esCancelada=est==='cancelada';
       const row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;gap:.75rem;padding:.75rem;border:1px solid var(--border);border-radius:8px;margin-bottom:.6rem;background:var(--bg3)'+(esCancelada?';opacity:.55':'');
+      row.style.cssText='display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;padding:.75rem;border:1px solid var(--border);border-radius:8px;margin-bottom:.6rem;background:var(--bg3)'+(esCancelada?';opacity:.55':'');
       row.innerHTML=`
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:13px;color:var(--text);font-weight:600${esCancelada?';text-decoration:line-through':''}">${escHtml(data.resumenCliente||'(sin nombre)')}</span>
+        <div style="flex:1;min-width:180px">
+          <div style="font-size:13px;color:var(--text);font-weight:600;line-height:1.3;word-break:break-word${esCancelada?';text-decoration:line-through':''}">${escHtml(data.resumenCliente||'(sin nombre)')}</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:3px">
             <span style="color:var(--accent);font-weight:600;font-size:12px;font-family:var(--fm)">${escHtml(data.resumenFolio||'')}</span>
             <span style="font-size:10px;font-family:var(--fm);color:${info.color};background:${info.bg};border:1px solid ${info.color};padding:1px 8px;border-radius:10px">${info.label}</span>
           </div>
           <div style="font-size:11px;color:var(--muted);font-family:var(--fm);margin-top:2px">${fecha} · Total: ${escHtml(data.resumenTotal||'$—')}</div>
         </div>
-        <select class="sel-estatus-row" style="max-width:120px;font-size:11px;padding:5px 8px">
-          <option value="pendiente"${est==='pendiente'?' selected':''}>Pendiente</option>
-          <option value="aprobada"${est==='aprobada'?' selected':''}>Aprobada</option>
-          <option value="rechazada"${est==='rechazada'?' selected':''}>Rechazada</option>
-          <option value="cancelada"${est==='cancelada'?' selected':''}>Cancelada</option>
-        </select>
-        <button class="tb ok" style="flex-shrink:0">${esCancelada?'Ver':'Abrir / editar'}</button>
-        ${esCancelada?'':'<button class="tb del" style="flex-shrink:0" title="Cancelar (pasa a histórico)">✕</button>'}
+        <div style="display:flex;align-items:center;gap:.5rem;flex-shrink:0;flex-wrap:wrap">
+          <select class="sel-estatus-row" style="max-width:130px;font-size:11px;padding:5px 8px">
+            <option value="pendiente"${est==='pendiente'?' selected':''}>Pendiente</option>
+            <option value="aprobada"${est==='aprobada'?' selected':''}>Aprobada</option>
+            <option value="rechazada"${est==='rechazada'?' selected':''}>Rechazada</option>
+            <option value="cancelada"${est==='cancelada'?' selected':''}>Cancelada</option>
+          </select>
+          <button class="tb ok" style="flex-shrink:0">${esCancelada?'Ver':'Abrir / editar'}</button>
+          ${esCancelada?'':'<button class="tb del" style="flex-shrink:0" title="Cancelar (pasa a histórico)">✕</button>'}
+        </div>
       `;
       row.querySelector('.sel-estatus-row').onchange=(e)=>cambiarEstatusCotizacion(key,e.target.value);
       row.querySelector('.tb.ok').onclick=()=>cargarCotizacion(key);
