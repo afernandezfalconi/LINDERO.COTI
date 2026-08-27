@@ -182,7 +182,7 @@ select option{background:var(--bg3)}
      botón PDF vive dentro del modal de compartir), no debe salir sobre la cotización. */
   #modal-overlay,#modal-exportar,#modal-landing,#modal-comp-overlay,
   #modal-finanzas-overlay,#modal-admin,#modal-auditoria,#providers-modal,#edit-prov-modal,
-  #chart-modal,#modal-pago,#modal-elige-comp,#modal-admin-hub,#modal-desbloqueos,#toast{ display:none !important; }
+  #chart-modal,#modal-pago,#modal-elige-comp,#modal-galeria-comp,#modal-admin-hub,#modal-desbloqueos,#toast{ display:none !important; }
 
   /* Membrete compacto para que TODO (incluida la firma) entre en 1 sola hoja. */
   #print-letterhead{display:block !important;color:#222;background:#fff;padding:0;font-family:var(--fb);
@@ -2924,13 +2924,54 @@ function renderCentro(){
   tb.innerHTML=html;
 }
 // Acciones on-demand (cargan la imagen pesada solo al hacer clic)
-async function centroComprobante(folio, tieneVend, tieneCli){
-  try{
-    if(tieneVend && !tieneCli) return centroVerCompVendedor(folio);
-    if(tieneCli && !tieneVend) return centroVerCompCliente(folio);
-    const cliente=confirm('Comprobante a ver:\n\n  Aceptar = el que subió el CLIENTE\n  Cancelar = el que subió el VENDEDOR');
-    return cliente?centroVerCompCliente(folio):centroVerCompVendedor(folio);
-  }catch(e){ toast('Error: '+((e&&e.message)||e), false); }
+// Abre TODOS los comprobantes de una cotización (cada abono del vendedor + los del
+// cliente) en una sola galería. Para clientes que pagan en varias exhibiciones.
+async function centroComprobante(folio){ return abrirGaleriaComprobantes(folio); }
+
+async function abrirGaleriaComprobantes(folio){
+  const items=[];
+  try{ // Comprobantes de cada abono registrado (vendedor)
+    const r=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/receipts');
+    (r.items||[]).forEach(rec=>{
+      (rec.historiaPagos||[]).forEach(p=>{
+        if(p.comprobanteArchivo){
+          const monto=(p.monto!=null)?(' $'+Number(p.monto).toLocaleString('es-MX',{minimumFractionDigits:2})):'';
+          const f=p.fecha?(' · '+new Date(p.fecha).toLocaleDateString('es-MX')):'';
+          items.push({archivo:p.comprobanteArchivo, label:'Abono'+monto+f});
+        }
+      });
+    });
+  }catch(e){}
+  try{ // Comprobantes que subió el cliente (aceptación, pueden ser varios)
+    const a=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/aceptacion');
+    comprobantesDeAceptacion(a&&a.aceptacion).forEach((arch,i)=>items.push({archivo:arch, label:'Comprobante del cliente '+(i+1)}));
+  }catch(e){}
+  if(items.length===0){ // fallback: pago viejo en el registro
+    try{ const full=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)); if(full&&full.pago&&full.pago.comprobante) items.push({archivo:full.pago.comprobante,label:'Comprobante de pago'}); }catch(e){}
+  }
+  if(items.length===0){ toast('No hay comprobantes en esta cotización', false); return; }
+  mostrarGaleriaComprobantes(items, 'Comprobantes — '+folio);
+}
+
+function mostrarGaleriaComprobantes(items, titulo){
+  window.__galComp=items;
+  const ex=document.getElementById('modal-galeria-comp'); if(ex) ex.remove();
+  const ov=document.createElement('div'); ov.id='modal-galeria-comp';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1400;display:flex;align-items:center;justify-content:center';
+  ov.onclick=function(e){ if(e.target===ov) ov.remove(); };
+  const cards=items.map(function(it,i){
+    const esImg=/^data:image\//.test(it.archivo||'');
+    const media=esImg
+      ? '<img src="'+it.archivo+'" style="max-width:100%;height:auto;border-radius:6px;border:1px solid var(--border);display:block">'
+      : '<div style="padding:1.25rem;text-align:center;background:var(--bg3);border:1px dashed var(--border);border-radius:6px"><button class="tb" onclick="verArchivo(window.__galComp['+i+'].archivo)"><i class="ti ti-file-invoice"></i> Abrir PDF</button></div>';
+    return '<div style="margin-bottom:1.1rem"><div style="font-size:12px;color:var(--muted);font-family:var(--fm);margin-bottom:.35rem;display:flex;align-items:center;gap:.5rem"><span>'+escHtml(it.label)+'</span><button class="tb" style="font-size:10px;padding:1px 7px;margin-left:auto" onclick="descargarArchivo(window.__galComp['+i+'].archivo,\'comprobante-'+(i+1)+'\')"><i class="ti ti-download"></i> Descargar</button></div>'+media+'</div>';
+  }).join('');
+  ov.innerHTML='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;max-width:720px;width:92%;max-height:90vh;overflow:auto">'
+    +'<div style="position:sticky;top:0;z-index:2;background:var(--bg2);padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center">'
+    +'<h3 style="margin:0;font-family:var(--fh)">'+escHtml(titulo)+' <span style="font-size:12px;color:var(--muted);font-weight:400">('+items.length+')</span></h3>'
+    +'<button onclick="document.getElementById(\'modal-galeria-comp\').remove()" title="Cerrar" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1">✕</button></div>'
+    +'<div style="padding:1.25rem">'+cards+'</div></div>';
+  document.body.appendChild(ov);
 }
 async function centroVerCompVendedor(folio){
   const r=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio)+'/receipts');
@@ -3365,23 +3406,9 @@ function formatDate(d){
 
 // Abre el comprobante de una cotización pagada desde Finanzas. Busca en todas las
 // fuentes: data.pago (viejo), aceptacionCliente (cliente) y el recibo (on-demand).
-async function verComprobanteFinanzas(folio){
-  // El cache de Finanzas es liviano (sin imágenes); el comprobante se trae on-demand.
-  try{
-    // Comprobante viejo en data.pago o del cliente (aceptación): traer el registro de ESTE folio
-    const full=await apiFetch('/api/cotizaciones/'+encodeURIComponent(folio));
-    if(full&&full.pago&&full.pago.comprobante){ verArchivo(full.pago.comprobante); return; }
-    const lista=comprobantesDeAceptacion(full&&full.aceptacionCliente);
-    if(lista.length===1){ verArchivo(lista[0]); return; }
-    if(lista.length>1){ elegirComprobante(lista, 'Comprobantes del cliente — '+folio); return; }
-  }catch(e){}
-  try{
-    const c=(finanzasDataCache||[]).find(x=>x.folio===folio);
-    if(c&&c.tieneCompVendedor){ await centroVerCompVendedor(folio); return; } // comprobante subido en un recibo/pago
-    if(c&&c.tieneCompCliente){ await centroVerCompCliente(folio); return; }
-  }catch(e){ toast('No se pudo abrir el comprobante: '+((e&&e.message)||e), false); return; }
-  toast('No se encontró el comprobante', false);
-}
+// Desde Finanzas: abre TODOS los comprobantes (todos los abonos + los del cliente)
+// en una sola galería.
+async function verComprobanteFinanzas(folio){ return abrirGaleriaComprobantes(folio); }
 
 function filtrarFinanzas(){
   if(!finanzasDataCache){
