@@ -322,6 +322,7 @@ async function entrarApp(){
     actualizarUIUsuario();
     cerrarSplash();
     asignarFolioPreview();
+    if(typeof refrescarSelectorProveedores==='function') refrescarSelectorProveedores(); // recargar proveedores ahora que ya hay token
   }else{
     err.textContent='Email o contraseña incorrectos'; err.style.display='block';
     try{ inp2.select(); }catch(e){}
