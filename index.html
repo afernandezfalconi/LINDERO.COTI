@@ -4611,7 +4611,7 @@ function abrirRegistroPago(){
       </div>
 
       <div style="display:flex;gap:0.5rem">
-        <button class="btnp ok" onclick="guardarPago()" style="flex:1">✓ Registrar Pago</button>
+        <button id="btn-registrar-pago" class="btnp ok" onclick="guardarPago()" style="flex:1">✓ Registrar Pago</button>
         <button class="btnp ghost" onclick="cerrarRegistroPago()" style="flex:1">Cancelar</button>
       </div>
     </div>
@@ -4679,6 +4679,13 @@ async function guardarPago(){
     return;
   }
 
+  // Guard anti doble-registro: si ya hay un registro en curso, ignorar el clic repetido.
+  // Evita que un doble clic dispare dos POST /api/receipts (que crearían recibos duplicados).
+  if(guardarPago._busy) return;
+  guardarPago._busy=true;
+  const _btnPago=document.getElementById('btn-registrar-pago');
+  if(_btnPago){ _btnPago.disabled=true; _btnPago.textContent='Registrando…'; }
+
   const token=obtenerToken();
   const user=obtenerUsuarioActual();
 
@@ -4742,6 +4749,9 @@ async function guardarPago(){
     }
   }catch(e){
     alert('Error: '+e.message);
+  }finally{
+    guardarPago._busy=false;
+    if(_btnPago){ _btnPago.disabled=false; _btnPago.textContent='✓ Registrar Pago'; }
   }
 }
 

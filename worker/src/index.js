@@ -364,6 +364,9 @@ async function createReceipt(env, receiptData) {
   };
 
   await env.COTIZACIONES.put(RECEIPTS_PREFIX + numero, JSON.stringify(receipt));
+  // Índice inverso folio -> numero (get es fuertemente consistente): permite deduplicar
+  // recibos aunque list() aún no refleje el recién creado (ver POST /api/receipts).
+  await env.COTIZACIONES.put(TOKENS_PREFIX + 'recibo-folio:' + receipt.folio, numero);
   await refreshFlags(env, receipt.folio);
   return receipt;
 }
@@ -1789,17 +1792,32 @@ export default {
         }
 
         // Evitar recibos DUPLICADOS: si el folio ya tiene recibo, se agrega el pago a ese.
-        const existentesFolio = await getReceiptsByFolio(env, body.folio);
-        if (existentesFolio.length > 0) {
-          const actualizado = await addPayment(env, existentesFolio[0].numero, {
+        // Se consulta PRIMERO un índice inverso folio -> numero con get() (fuertemente
+        // consistente). getReceiptsByFolio usa list(), que es EVENTUALMENTE consistente:
+        // dos POST casi simultáneos (doble clic / reintento / dos dispositivos) podían no
+        // "ver" el recibo recién creado por el otro y duplicarlo. El índice con get() cierra
+        // esa carrera. Se conserva el barrido por list() como respaldo (recibos viejos sin índice).
+        const idxFolio = TOKENS_PREFIX + 'recibo-folio:' + body.folio;
+        let numeroExistente = await env.COTIZACIONES.get(idxFolio);
+        if (!numeroExistente) {
+          const existentesFolio = await getReceiptsByFolio(env, body.folio);
+          if (existentesFolio.length > 0) numeroExistente = existentesFolio[0].numero;
+        }
+        if (numeroExistente) {
+          const actualizado = await addPayment(env, numeroExistente, {
             monto: body.monto || 0,
             metodo: body.metodo || 'efectivo',
             comprobante: body.comprobante || '',
             comprobanteArchivo: body.comprobanteArchivo || '',
             descripcion: body.descripcion || ''
           });
-          await createAuditLog(env, user, 'ADD_PAYMENT', existentesFolio[0].numero, { folio: body.folio });
-          return json(actualizado, 200, origin);
+          if (actualizado) {
+            await env.COTIZACIONES.put(idxFolio, numeroExistente); // (re)asegura el índice
+            await createAuditLog(env, user, 'ADD_PAYMENT', numeroExistente, { folio: body.folio });
+            return json(actualizado, 200, origin);
+          }
+          // El índice apuntaba a un recibo ya inexistente (borrado): limpiar y crear uno nuevo.
+          await env.COTIZACIONES.delete(idxFolio);
         }
 
         const receipt = await createReceipt(env, {
