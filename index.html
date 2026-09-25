@@ -4635,6 +4635,9 @@ function abrirRegistroPago(){
   if(!obtenerToken() || !obtenerUsuarioActual()){
     return;
   }
+  // Clave única de ESTE intento de pago: si el envío se repite (doble clic, reintento
+  // tras un error de red), el servidor la reconoce y no suma el monto dos veces.
+  guardarPago._idem=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12));
 
   const folio=document.getElementById('cli-f')?.value;
   const totalEl=document.getElementById('r-to');
@@ -4807,10 +4810,19 @@ async function guardarPago(){
           monto,
           comprobante,
           comprobanteArchivo:pagoComprobanteArchivo||'',
-          descripcion
+          descripcion,
+          idempotencyKey:guardarPago._idem
         })
       });
 
+      if(recibResp.status===409){
+        // El folio ya tenía recibo (datos viejos en esta pantalla): recargar y avisar.
+        const d=await recibResp.json().catch(()=>({}));
+        cerrarRegistroPago();
+        await cargarRecibos();
+        alert(d.error||'Este folio ya tiene un recibo. Se recargaron los recibos.');
+        return;
+      }
       if(!recibResp.ok) throw new Error('Error al crear recibo');
       const recibo=await recibResp.json();
       recibosActuales=[recibo];
@@ -4820,7 +4832,7 @@ async function guardarPago(){
       const pagoResp=await fetch(API_BASE+'/api/receipts/'+recibo.numero+'/payment', {
         method:'POST',
         headers:{'Content-Type':'application/json','X-Auth-Token':token,'X-User-Email':user.email},
-        body:JSON.stringify({monto,metodo,comprobante,comprobanteArchivo:pagoComprobanteArchivo||'',descripcion})
+        body:JSON.stringify({monto,metodo,comprobante,comprobanteArchivo:pagoComprobanteArchivo||'',descripcion,idempotencyKey:guardarPago._idem})
       });
 
       if(!pagoResp.ok) throw new Error('Error al registrar pago');

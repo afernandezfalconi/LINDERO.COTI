@@ -393,6 +393,25 @@ async function getReceiptsByFolio(env, folio) {
   return receipts.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 }
 
+// ── IDEMPOTENCIA DE PAGOS ─────────────────────────────────────────────
+// El frontend manda una clave única por INTENTO de pago (se genera al abrir el
+// modal). Si la misma clave vuelve a llegar —doble clic, reintento por red lenta,
+// respuesta perdida— se devuelve el recibo tal cual, SIN sumar el pago otra vez.
+// Antes, un reintento sumaba el monto de nuevo (total $1,000 → $2,000 registrados).
+const IDEM_TTL = 7 * 24 * 3600;
+function claveIdem(body) {
+  const k = typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
+  return /^[A-Za-z0-9-]{8,64}$/.test(k) ? TOKENS_PREFIX + 'pago-idem:' + k : null;
+}
+async function reciboYaRegistrado(env, idem) {
+  if (!idem) return null;
+  const numero = await env.COTIZACIONES.get(idem);
+  return numero ? await getReceiptByNumber(env, numero) : null;
+}
+async function marcarIdem(env, idem, numero) {
+  if (idem) await env.COTIZACIONES.put(idem, numero, { expirationTtl: IDEM_TTL });
+}
+
 async function addPayment(env, receiptNumber, payment) {
   const receipt = await getReceiptByNumber(env, receiptNumber);
   if (!receipt) return null;
@@ -1791,12 +1810,16 @@ export default {
           return json({ error: 'Campos requeridos: folio, cliente, detalles, totales' }, 400, origin);
         }
 
-        // Evitar recibos DUPLICADOS: si el folio ya tiene recibo, se agrega el pago a ese.
-        // Se consulta PRIMERO un índice inverso folio -> numero con get() (fuertemente
-        // consistente). getReceiptsByFolio usa list(), que es EVENTUALMENTE consistente:
-        // dos POST casi simultáneos (doble clic / reintento / dos dispositivos) podían no
-        // "ver" el recibo recién creado por el otro y duplicarlo. El índice con get() cierra
-        // esa carrera. Se conserva el barrido por list() como respaldo (recibos viejos sin índice).
+        // Mismo intento de pago repetido (doble clic / reintento): devolver lo ya registrado.
+        const idem = claveIdem(body);
+        const yaRegistrado = await reciboYaRegistrado(env, idem);
+        if (yaRegistrado) return json(yaRegistrado, 200, origin);
+
+        // Evitar recibos DUPLICADOS. Se consulta PRIMERO un índice inverso folio -> numero
+        // con get(): ve de inmediato lo escrito en la misma ubicación de Cloudflare (list()
+        // no). No es consistencia global estricta —otra ubicación puede tardar ~60 s—, pero
+        // cubre el doble envío desde un mismo dispositivo. list() queda como respaldo para
+        // recibos viejos sin índice.
         const idxFolio = TOKENS_PREFIX + 'recibo-folio:' + body.folio;
         let numeroExistente = await env.COTIZACIONES.get(idxFolio);
         if (!numeroExistente) {
@@ -1804,17 +1827,20 @@ export default {
           if (existentesFolio.length > 0) numeroExistente = existentesFolio[0].numero;
         }
         if (numeroExistente) {
-          const actualizado = await addPayment(env, numeroExistente, {
-            monto: body.monto || 0,
-            metodo: body.metodo || 'efectivo',
-            comprobante: body.comprobante || '',
-            comprobanteArchivo: body.comprobanteArchivo || '',
-            descripcion: body.descripcion || ''
-          });
-          if (actualizado) {
+          const existente = await getReceiptByNumber(env, numeroExistente);
+          if (existente) {
+            // Esta ruta es SOLO para el primer pago; los abonos van a /payment. Si el folio
+            // ya tiene recibo, el cliente trae datos viejos (reintento tras una respuesta
+            // perdida, o un segundo dispositivo). Antes se sumaba el pago aquí y el dinero
+            // quedaba al doble (caso COT-046). Ahora se rechaza y el cliente recarga.
             await env.COTIZACIONES.put(idxFolio, numeroExistente); // (re)asegura el índice
-            await createAuditLog(env, user, 'ADD_PAYMENT', numeroExistente, { folio: body.folio });
-            return json(actualizado, 200, origin);
+            const pagado = (existente.historiaPagos || []).reduce((s, p) => s + (Number(p.monto) || 0), 0);
+            await createAuditLog(env, user, 'RECEIPT_DUPLICATE_BLOCKED', numeroExistente, { folio: body.folio, monto: body.monto });
+            return json({
+              error: `Este folio ya tiene un recibo con $${pagado.toFixed(2)} registrados. Se recargaron los recibos: revisa si el pago ya quedó y, si falta, regístralo como abono.`,
+              code: 'RECIBO_EXISTENTE',
+              numero: numeroExistente
+            }, 409, origin);
           }
           // El índice apuntaba a un recibo ya inexistente (borrado): limpiar y crear uno nuevo.
           await env.COTIZACIONES.delete(idxFolio);
@@ -1833,6 +1859,7 @@ export default {
           descripcion: body.descripcion || ''
         });
 
+        await marcarIdem(env, idem, receipt.numero);
         await createAuditLog(env, user, 'CREATE_RECEIPT', receipt.numero, { folio: body.folio });
         return json(receipt, 201, origin);
       }
@@ -1912,6 +1939,11 @@ export default {
           return json({ error: 'Monto requerido (número > 0)' }, 400, origin);
         }
 
+        // Mismo intento de abono repetido: no sumarlo dos veces.
+        const idem = claveIdem(body);
+        const yaRegistrado = await reciboYaRegistrado(env, idem);
+        if (yaRegistrado) return json(yaRegistrado, 200, origin);
+
         const updated = await addPayment(env, numero, {
           monto: body.monto,
           metodo: body.metodo || 'efectivo',
@@ -1921,6 +1953,7 @@ export default {
         });
 
         if (!updated) return json({ error: 'Recibo no encontrado' }, 404, origin);
+        await marcarIdem(env, idem, numero);
 
         await createAuditLog(env, user, 'ADD_PAYMENT', numero, {
           monto: body.monto,
