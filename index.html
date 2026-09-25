@@ -3478,6 +3478,7 @@ function filtrarFinanzas(){
       monto:c.data.pago.montoRecibido||parseFloat(c.total)||0,
       fechaPago:c.data.pago.fechaPago||'—',
       conVoucher:!!(c.data.pago&&c.data.pago.comprobante) || !!(c.data.aceptacionCliente&&c.data.aceptacionCliente.comprobante) || !!c.tieneCompVendedor || !!c.tieneCompCliente,
+      metodos:c.metodos||null,
       fecha:c.data.pago.fechaPago?new Date(c.data.pago.fechaPago):null
     }))
     .filter(ing=>{
@@ -3593,7 +3594,10 @@ function filtrarFinanzas(){
     ? (filtroSel.options[filtroSel.selectedIndex]?filtroSel.options[filtroSel.selectedIndex].text:'')
     : 'Todo (sin filtro)';
   const rangoTxt=document.getElementById('filtro-rango-txt').textContent||'';
-  finanzasUltimo={ ingresos, egresosData, totalIngresos, totalEgresos, utilidadNeta, periodoTxt, rangoTxt };
+  // Desglose por método de pago: sumar, entre los ingresos ya filtrados, los métodos de sus recibos.
+  const metodosTotal={};
+  ingresos.forEach(i=>{ if(i.metodos){ for(const m in i.metodos){ metodosTotal[m]=(metodosTotal[m]||0)+i.metodos[m]; } } });
+  finanzasUltimo={ ingresos, egresosData, totalIngresos, totalEgresos, utilidadNeta, periodoTxt, rangoTxt, metodosTotal };
 }
 
 // Abre una ventana con un reporte imprimible (PDF) del MISMO filtro seleccionado.
@@ -3604,6 +3608,21 @@ function imprimirFinanzas(){
   const esc=(s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const generado=new Date().toLocaleString('es-MX');
   const rango=f.rangoTxt && f.rangoTxt!=='—' ? (' · '+esc(f.rangoTxt)) : '';
+  // Membrete: logo del header (src ya absoluto) + nombre/tagline de la empresa
+  const logoSrc=(document.querySelector('.hdr-left img')||{}).src||'';
+  const logoImg=logoSrc?`<img src="${esc(logoSrc)}" alt="" style="height:54px;width:auto">`:'';
+  // Desglose por método de pago
+  const METLBL={efectivo:'Efectivo',transferencia:'Transferencia',tarjeta:'Tarjeta',otro:'Otro'};
+  const mt=f.metodosTotal||{};
+  const metKeys=Object.keys(mt).filter(k=>mt[k]>0).sort((a,b)=>mt[b]-mt[a]);
+  const totalMet=metKeys.reduce((s,k)=>s+mt[k],0);
+  const metodosHtml = metKeys.length
+    ? `<h2 class="ing">Ingresos por método de pago</h2>
+       <table><thead><tr><th>Método</th><th class="r">Monto</th><th class="r">%</th></tr></thead><tbody>${
+         metKeys.map(k=>`<tr><td>${esc(METLBL[k]||k)}</td><td class="r">${$m(mt[k])}</td><td class="r">${totalMet?Math.round(mt[k]/totalMet*100):0}%</td></tr>`).join('')
+       }</tbody></table>
+       <div class="tot ing">Total: ${$m(totalMet)}</div>`
+    : '';
   let filasIng = f.ingresos.length
     ? f.ingresos.map(i=>`<tr><td>${esc(i.folio)}</td><td>${esc(i.cliente)}</td><td class="r">${$m(i.monto)}</td><td>${esc(i.fechaPago)}</td></tr>`).join('')
     : '<tr><td colspan="4" class="c muted">Sin cotizaciones pagadas en este período</td></tr>';
@@ -3627,15 +3646,25 @@ function imprimirFinanzas(){
   .neta .lbl{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:#5a6b64}
   .grid{display:flex;gap:24px;justify-content:center;margin-bottom:8px;font-size:12px}
   .foot{margin-top:24px;font-size:10px;color:#8a978f;text-align:center}
+  .mb{display:flex;align-items:center;gap:14px;border-bottom:3px solid #1a312c;padding-bottom:12px;margin-bottom:14px}
+  .mb .emp{font-family:'Syne',Segoe UI,sans-serif;font-size:22px;font-weight:800;color:#1a312c;letter-spacing:-.5px}
+  .mb .tag{font-size:10px;letter-spacing:2px;color:#5a6b64;text-transform:uppercase}
+  .mb .doc{margin-left:auto;text-align:right}
+  .mb .doc .t{font-size:16px;font-weight:700;color:#1a312c} .mb .doc .d{font-size:11px;color:#5a6b64}
   @media print{ @page{size:letter;margin:12mm} body{padding:0} .noprint{display:none} }
 </style></head><body>
-  <h1>Reporte de Finanzas</h1>
-  <div class="sub">LINDERO.COTI · Período: ${esc(f.periodoTxt)}${rango} · Generado: ${esc(generado)}</div>
+  <div class="mb">
+    ${logoImg}
+    <div><div class="emp">Lindero</div><div class="tag">Límites · Protección · Precisión</div></div>
+    <div class="doc"><div class="t">Reporte de Finanzas</div><div class="d">Período: ${esc(f.periodoTxt)}${rango}</div><div class="d">Generado: ${esc(generado)}</div></div>
+  </div>
 
   <h2 class="ing">Ingresos (cotizaciones pagadas)</h2>
   <table><thead><tr><th>Folio</th><th>Cliente</th><th class="r">Monto</th><th>Fecha</th></tr></thead>
   <tbody>${filasIng}</tbody></table>
   <div class="tot ing">Total ingresos: ${$m(f.totalIngresos)} · ${f.ingresos.length} pago(s)</div>
+
+  ${metodosHtml}
 
   <h2 class="eg">Egresos (costo de materiales)</h2>
   <table><thead><tr><th>Folio</th><th>Cliente</th><th>Descripción</th><th class="r">Cant.</th><th class="r">Costo unit.</th><th class="r">Total</th></tr></thead>

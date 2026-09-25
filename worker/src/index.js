@@ -1177,6 +1177,27 @@ export default {
           keys.push(...r.keys);
           cur = r.list_complete ? null : r.cursor;
         } while (cur);
+        // Cargar TODOS los recibos UNA vez (agrupados por folio) para el desglose por
+        // método de pago. Un solo barrido, sin get por folio (evita N+1 y el límite de subrequests).
+        const metodosPorFolio = {};
+        let rcur;
+        do {
+          const rr = await env.COTIZACIONES.list({ prefix: RECEIPTS_PREFIX, cursor: rcur, limit: 1000 });
+          for (const rk of rr.keys) {
+            const raw = await env.COTIZACIONES.get(rk.name);
+            if (!raw) continue;
+            try {
+              const rec = JSON.parse(raw);
+              if (!rec.folio) continue;
+              const acc = metodosPorFolio[rec.folio] || (metodosPorFolio[rec.folio] = {});
+              for (const p of (rec.historiaPagos || [])) {
+                const m = (p.metodo || 'otro').toLowerCase();
+                acc[m] = (acc[m] || 0) + (p.monto || 0);
+              }
+            } catch (e) {}
+          }
+          rcur = rr.list_complete ? null : rr.cursor;
+        } while (rcur);
         const items = await Promise.all(keys.map(async k => {
           const meta = k.metadata || {};
           const folio = k.name.slice(KV_PREFIX.length);
@@ -1195,6 +1216,8 @@ export default {
             // banderas de comprobante (sin traer la imagen; se abre on-demand al hacer clic)
             tieneCompVendedor: !!meta.tieneCompVendedor || !!(pago && pago.comprobante),
             tieneCompCliente: !!meta.tieneCompCliente,
+            // desglose por método sumado de los recibos del folio (para el reporte imprimible)
+            metodos: metodosPorFolio[folio] || null,
             data: {
               pago: paid ? { pagado: true, montoRecibido: montoPagado, fechaPago: meta.fechaPago || (pago && pago.fechaPago) || '', comprobante: '' } : null,
               aceptacionCliente: { comprobante: '' },
